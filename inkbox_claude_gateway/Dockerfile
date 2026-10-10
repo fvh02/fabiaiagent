@@ -11,7 +11,8 @@ RUN apt-get update \
 RUN python3 -m venv /opt/inkbox-claude \
     && /opt/inkbox-claude/bin/pip install --no-cache-dir --upgrade pip \
     && /opt/inkbox-claude/bin/pip install --no-cache-dir \
-       "claude-code-plugin @ git+https://github.com/inkbox-ai/claude-code-plugin@${INKBOX_CLAUDE_REF}"
+       "claude-code-plugin @ git+https://github.com/inkbox-ai/claude-code-plugin@${INKBOX_CLAUDE_REF}" \
+       "caldav==3.4.0" tzdata
 
 # The Agent SDK ships a native Claude Code binary; expose it as `claude` so
 # doctor and the readiness check find it.
@@ -23,6 +24,7 @@ RUN bundled="$(/opt/inkbox-claude/bin/python -c 'import claude_agent_sdk, os; pr
 ENV PATH="/opt/inkbox-claude/bin:${PATH}"
 
 COPY run.sh /run.sh
-RUN chmod +x /run.sh
+COPY apple-calendar /usr/local/bin/apple-calendar
+RUN chmod +x /run.sh /usr/local/bin/apple-calendar
 
 CMD ["/run.sh"]

@@ -1,0 +1,241 @@
+#!/opt/inkbox-claude/bin/python
+"""Read and write the Apple (iCloud) calendar over CalDAV.
+
+Credentials come from the add-on configuration via the environment:
+ICLOUD_APPLE_ID, ICLOUD_APP_PASSWORD, optional ICLOUD_CALENDAR (default
+calendar name) and CALDAV_URL (defaults to iCloud). Times without an offset
+are read in the local time zone (TZ).
+"""
+
+import argparse
+import json
+import os
+import sys
+import uuid
+from datetime import date, datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
+
+import caldav
+from icalendar import Alarm, Calendar, Event
+
+DEFAULT_URL = "https://caldav.icloud.com/"
+
+
+def local_tz():
+    try:
+        return ZoneInfo(os.environ.get("TZ") or "UTC")
+    except Exception:
+        return ZoneInfo("UTC")
+
+
+def fail(message):
+    print(json.dumps({"ok": False, "error": message}, ensure_ascii=False))
+    sys.exit(1)
+
+
+def parse_dt(value):
+    try:
+        dt = datetime.fromisoformat(value.strip().replace(" ", "T", 1))
+    except ValueError:
+        fail(f"Ungültige Zeit '{value}'. Format: YYYY-MM-DD HH:MM")
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=local_tz())
+    return dt
+
+
+def parse_date(value):
+    try:
+        return date.fromisoformat(value.strip()[:10])
+    except ValueError:
+        fail(f"Ungültiges Datum '{value}'. Format: YYYY-MM-DD")
+
+
+def connect():
+    user = os.environ.get("ICLOUD_APPLE_ID", "").strip()
+    password = os.environ.get("ICLOUD_APP_PASSWORD", "").strip()
+    if not user or not password:
+        fail("Apple-Kalender ist nicht eingerichtet: Apple-ID und App-Passwort im Add-on eintragen.")
+    url = os.environ.get("CALDAV_URL", "").strip() or DEFAULT_URL
+    try:
+        return caldav.DAVClient(url=url, username=user, password=password).principal()
+    except Exception as exc:
+        fail(f"Anmeldung beim Kalender fehlgeschlagen: {exc}")
+
+
+def calendar_name(cal):
+    try:
+        return cal.get_display_name() or ""
+    except Exception:
+        return getattr(cal, "name", "") or ""
+
+
+def writable_calendars(principal):
+    result = []
+    for cal in principal.calendars():
+        try:
+            supported = cal.get_supported_components()
+        except Exception:
+            supported = ["VEVENT"]
+        if "VEVENT" in supported:
+            result.append(cal)
+    return result
+
+
+def pick_calendar(principal, name):
+    cals = writable_calendars(principal)
+    if not cals:
+        fail("Keine Kalender gefunden.")
+    wanted = (name or os.environ.get("ICLOUD_CALENDAR", "")).strip()
+    if not wanted:
+        return cals[0]
+    for cal in cals:
+        if calendar_name(cal).casefold() == wanted.casefold():
+            return cal
+    names = ", ".join(calendar_name(c) for c in cals)
+    fail(f"Kalender '{wanted}' nicht gefunden. Vorhanden: {names}")
+
+
+def fmt(value):
+    if isinstance(value, datetime):
+        if value.tzinfo is not None:
+            value = value.astimezone(local_tz())
+        return value.strftime("%Y-%m-%d %H:%M")
+    return value.isoformat()
+
+
+def cmd_calendars(args):
+    principal = connect()
+    default = os.environ.get("ICLOUD_CALENDAR", "").strip()
+    cals = [calendar_name(c) for c in writable_calendars(principal)]
+    print(json.dumps({"ok": True, "calendars": cals, "default": default or (cals[0] if cals else "")},
+                     ensure_ascii=False))
+
+
+def cmd_list(args):
+    principal = connect()
+    start = parse_dt(args.start) if args.start else datetime.now(local_tz())
+    end = parse_dt(args.end) if args.end else start + timedelta(days=args.days)
+    cals = [pick_calendar(principal, args.calendar)] if args.calendar else writable_calendars(principal)
+    events = []
+    for cal in cals:
+        try:
+            found = cal.search(start=start, end=end, event=True, expand=True)
+        except Exception as exc:
+            fail(f"Termine konnten nicht gelesen werden: {exc}")
+        for item in found:
+            comp = item.icalendar_component
+            dtstart = comp.get("dtstart")
+            dtend = comp.get("dtend")
+            all_day = bool(dtstart) and not isinstance(dtstart.dt, datetime)
+            end_value = dtend.dt if dtend else None
+            if all_day and end_value is not None:
+                end_value -= timedelta(days=1)  # DTEND of all-day events is exclusive
+            events.append({
+                "calendar": calendar_name(cal),
+                "uid": str(comp.get("uid", "")),
+                "title": str(comp.get("summary", "")),
+                "start": fmt(dtstart.dt) if dtstart else "",
+                "end": fmt(end_value) if end_value is not None else "",
+                "all_day": all_day,
+                "location": str(comp.get("location", "")),
+            })
+    events.sort(key=lambda e: e["start"])
+    print(json.dumps({"ok": True, "from": fmt(start), "to": fmt(end), "events": events}, ensure_ascii=False))
+
+
+def cmd_add(args):
+    event = Event()
+    uid = f"{uuid.uuid4()}@inkbox-claude-gateway"
+    event.add("uid", uid)
+    event.add("dtstamp", datetime.now(timezone.utc))
+    event.add("summary", args.title)
+    if args.all_day:
+        first = parse_date(args.start)
+        last = parse_date(args.end) if args.end else first
+        if last < first:
+            fail("Ende liegt vor dem Beginn.")
+        event.add("dtstart", first)
+        event.add("dtend", last + timedelta(days=1))
+        shown_start, shown_end = first.isoformat(), last.isoformat()
+    else:
+        start = parse_dt(args.start)
+        end = parse_dt(args.end) if args.end else start + timedelta(minutes=args.duration)
+        if end <= start:
+            fail("Ende liegt vor dem Beginn.")
+        event.add("dtstart", start.astimezone(timezone.utc))
+        event.add("dtend", end.astimezone(timezone.utc))
+        shown_start, shown_end = fmt(start), fmt(end)
+    if args.location:
+        event.add("location", args.location)
+    if args.notes:
+        event.add("description", args.notes)
+    if args.alarm is not None:
+        alarm = Alarm()
+        alarm.add("action", "DISPLAY")
+        alarm.add("description", args.title)
+        alarm.add("trigger", timedelta(minutes=-args.alarm))
+        event.add_component(alarm)
+    cal_obj = Calendar()
+    cal_obj.add("prodid", "-//inkbox-claude-gateway//apple-calendar//DE")
+    cal_obj.add("version", "2.0")
+    cal_obj.add_component(event)
+
+    principal = connect()
+    cal = pick_calendar(principal, args.calendar)
+    try:
+        cal.save_event(cal_obj.to_ical().decode())
+    except Exception as exc:
+        fail(f"Termin konnte nicht angelegt werden: {exc}")
+    print(json.dumps({"ok": True, "calendar": calendar_name(cal), "uid": uid, "title": args.title,
+                      "start": shown_start, "end": shown_end, "all_day": args.all_day}, ensure_ascii=False))
+
+
+def cmd_delete(args):
+    principal = connect()
+    cals = [pick_calendar(principal, args.calendar)] if args.calendar else writable_calendars(principal)
+    for cal in cals:
+        try:
+            item = cal.event_by_uid(args.uid)
+        except Exception:
+            continue
+        title = str(item.icalendar_component.get("summary", ""))
+        item.delete()
+        print(json.dumps({"ok": True, "deleted": args.uid, "title": title, "calendar": calendar_name(cal)},
+                         ensure_ascii=False))
+        return
+    fail(f"Kein Termin mit UID {args.uid} gefunden.")
+
+
+def main():
+    parser = argparse.ArgumentParser(prog="apple-calendar", description=__doc__)
+    sub = parser.add_subparsers(dest="cmd", required=True)
+
+    sub.add_parser("calendars", help="list calendars")
+
+    p = sub.add_parser("list", help="list events (default: next 7 days)")
+    p.add_argument("--from", dest="start")
+    p.add_argument("--to", dest="end")
+    p.add_argument("--days", type=int, default=7)
+    p.add_argument("--calendar")
+
+    p = sub.add_parser("add", help="create an event")
+    p.add_argument("--title", required=True)
+    p.add_argument("--start", required=True, help="'YYYY-MM-DD HH:MM', or YYYY-MM-DD with --all-day")
+    p.add_argument("--end")
+    p.add_argument("--duration", type=int, default=60, help="minutes, if --end is missing")
+    p.add_argument("--all-day", action="store_true")
+    p.add_argument("--location")
+    p.add_argument("--notes")
+    p.add_argument("--alarm", type=int, help="reminder N minutes before")
+    p.add_argument("--calendar")
+
+    p = sub.add_parser("delete", help="delete an event by uid")
+    p.add_argument("--uid", required=True)
+    p.add_argument("--calendar")
+
+    args = parser.parse_args()
+    {"calendars": cmd_calendars, "list": cmd_list, "add": cmd_add, "delete": cmd_delete}[args.cmd](args)
+
+
+if __name__ == "__main__":
+    main()

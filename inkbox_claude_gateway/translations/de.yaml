@@ -14,6 +14,15 @@ configuration:
   reply_language:
     name: Antwortsprache
     description: Sprache, in der Claude antwortet. Schreibst du in einer anderen Sprache oder schickst eine Datei in einer anderen Sprache, antwortet Claude in dieser. „Automatisch“ = keine Vorgabe.
+  icloud_apple_id:
+    name: Apple-ID (Kalender)
+    description: E-Mail-Adresse deiner Apple-ID. Leer lassen, wenn Claude keinen Kalenderzugriff haben soll.
+  icloud_app_password:
+    name: App-spezifisches Passwort (Kalender)
+    description: Nicht dein Apple-Passwort! Unter account.apple.com → Anmeldung und Sicherheit → App-spezifische Passwörter erzeugen.
+  icloud_calendar:
+    name: Standardkalender
+    description: Name des Kalenders für neue Termine, z. B. „Privat“. Leer = erster Kalender.
   project_dir:
     name: Arbeitsordner
     description: Ordner, in dem Claude arbeitet. Unter /share auch per Samba erreichbar.

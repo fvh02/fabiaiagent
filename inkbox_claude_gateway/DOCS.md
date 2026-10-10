@@ -27,12 +27,35 @@ nur auf deinem Home Assistant gespeichert, Schlüssel werden verdeckt angezeigt.
 | Claude-OAuth-Token | Für ein Claude-Abo: auf einem Rechner mit Claude Code `claude setup-token` ausführen und das Token einfügen. |
 | Anthropic-API-Key | Alternative zum Token (Abrechnung pro Token). Eins von beiden reicht. |
 | Antwortsprache | Sprache, in der Claude antwortet (Standard: Deutsch). Schreibst du in einer anderen Sprache oder schickst eine Datei in einer anderen Sprache, antwortet Claude in dieser. „Automatisch“ = keine Vorgabe. |
+| Apple-ID (Kalender) | Optional, siehe [Apple-Kalender](#apple-kalender). |
+| App-spezifisches Passwort (Kalender) | Optional, siehe [Apple-Kalender](#apple-kalender). |
+| Standardkalender | Optional, z. B. `Privat`. |
 | Arbeitsordner | Standard `/share/claude-workspace`. |
 | Voice AI | Nur wenn die Identität eine Telefonnummer hat. |
 | Claude-Modell | Optional, leer = Standard. |
 
 **Speichern**, dann im Tab **Info** „Beim Booten starten“ und „Watchdog“
 aktivieren und **Starten**.
+
+## Apple-Kalender
+
+Claude kann Termine in deinem Apple-Kalender (iCloud) anlegen, anzeigen und
+löschen, z. B. per Nachricht „Trag mir morgen um 15 Uhr Zahnarzt ein“.
+
+1. Auf [account.apple.com](https://account.apple.com) anmelden →
+   **Anmeldung und Sicherheit → App-spezifische Passwörter** → neues Passwort
+   erzeugen (Name z. B. „Home Assistant“). Dafür muss die
+   Zwei-Faktor-Authentifizierung aktiv sein.
+2. Im Add-on unter **Konfiguration** eintragen:
+   - **Apple-ID (Kalender):** die E-Mail-Adresse deiner Apple-ID
+   - **App-spezifisches Passwort:** das eben erzeugte Passwort (`xxxx-xxxx-xxxx-xxxx`),
+     **nicht** dein normales Apple-Passwort
+   - **Standardkalender:** optional, Name wie in der Kalender-App, z. B. `Privat`
+3. Speichern und neu starten. Im Protokoll steht `[inkbox] Apple-Kalender: aktiv`.
+
+Das Kalender-Werkzeug darf Claude ohne Rückfrage benutzen. Alle anderen
+Befehle fragen weiterhin per Nachricht nach. Zum Abschalten die beiden Felder
+leeren. Das App-Passwort kannst du jederzeit auf account.apple.com widerrufen.
 
 ## Prüfen
 
