@@ -1,0 +1,22 @@
+configuration:
+  inkbox_api_key:
+    name: Inkbox-API-Key
+    description: API-Key aus deinem Inkbox-Konto (inkbox.ai).
+  inkbox_identity:
+    name: Inkbox-Identität
+    description: Handle deiner Inkbox-Identität, ohne @.
+  claude_oauth_token:
+    name: Claude-OAuth-Token
+    description: Für ein Claude-Abo. Erzeugen mit „claude setup-token“ auf einem Rechner mit Claude Code. Alternativ den Anthropic-API-Key ausfüllen.
+  anthropic_api_key:
+    name: Anthropic-API-Key
+    description: Alternative zum OAuth-Token, Abrechnung pro Token (console.anthropic.com).
+  project_dir:
+    name: Arbeitsordner
+    description: Ordner, in dem Claude arbeitet. Unter /share auch per Samba erreichbar.
+  voice_ai:
+    name: Voice AI
+    description: Sprachanrufe einrichten. Nur sinnvoll, wenn die Identität eine Telefonnummer hat.
+  claude_model:
+    name: Claude-Modell
+    description: Optional. Leer lassen für das Standardmodell.
