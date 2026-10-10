@@ -1,0 +1,62 @@
+#!/usr/bin/env python3
+"""Control the Home Assistant Downloader add-on (queue status, add/remove links).
+
+Usage:
+  downloader status
+  downloader add URL [URL ...]
+  downloader remove ID
+
+Reads DOWNLOADER_URL (e.g. http://4b225c51-downloader:8100) and
+DOWNLOADER_TOKEN (the add-on's api_token). Prints JSON.
+"""
+
+import json
+import os
+import sys
+import urllib.error
+import urllib.request
+
+
+def fail(message: str) -> None:
+    print(json.dumps({"error": message}, ensure_ascii=False))
+    sys.exit(1)
+
+
+def call(method: str, path: str, body: dict | None = None):
+    base = os.environ.get("DOWNLOADER_URL", "").rstrip("/")
+    token = os.environ.get("DOWNLOADER_TOKEN", "")
+    if not base or not token:
+        fail("Downloader ist nicht eingerichtet (downloader_url/downloader_token im Gateway-Add-on).")
+    data = json.dumps(body).encode() if body is not None else None
+    request = urllib.request.Request(base + path, data=data, method=method)
+    request.add_header("Authorization", f"Bearer {token}")
+    if data is not None:
+        request.add_header("Content-Type", "application/json")
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            raw = response.read()
+    except urllib.error.HTTPError as err:
+        fail(f"HTTP {err.code}: {err.read().decode(errors='replace').strip() or err.reason}")
+    except (urllib.error.URLError, OSError) as err:
+        fail(f"Downloader nicht erreichbar unter {base}: {getattr(err, 'reason', err)}")
+    return json.loads(raw) if raw else {"ok": True}
+
+
+def main(argv: list[str]) -> None:
+    if not argv or argv[0] in ("-h", "--help"):
+        print(__doc__.strip())
+        return
+    command, args = argv[0], argv[1:]
+    if command == "status" and not args:
+        result = call("GET", "/api/status")
+    elif command == "add" and args:
+        result = call("POST", "/api/items", {"url": " ".join(args)})
+    elif command == "remove" and len(args) == 1:
+        result = call("DELETE", f"/api/items/{args[0]}")
+    else:
+        fail("Unbekannter Aufruf. Siehe: downloader --help")
+    print(json.dumps(result, ensure_ascii=False, indent=1))
+
+
+if __name__ == "__main__":
+    main(sys.argv[1:])

@@ -1,5 +1,5 @@
 name: Inkbox Claude Gateway
-version: "0.5.0"
+version: "0.6.0"
 slug: inkbox_claude_gateway
 description: Weckt Claude Code bei eingehenden E-Mails und iMessages über Inkbox.
 url: https://github.com/fvh02/fabiaiagent
@@ -28,6 +28,8 @@ options:
   project_dir: /share/claude-workspace
   voice_ai: false
   claude_model: ""
+  downloader_url: http://4b225c51-downloader:8100
+  downloader_token: ""
 schema:
   inkbox_api_key: password
   inkbox_identity: str
@@ -42,3 +44,5 @@ schema:
   project_dir: str
   voice_ai: bool
   claude_model: str?
+  downloader_url: str?
+  downloader_token: password?

@@ -38,3 +38,9 @@ configuration:
   claude_model:
     name: Claude-Modell
     description: Optional. Leer lassen für das Standardmodell.
+  downloader_url:
+    name: Downloader-Adresse
+    description: Interne Adresse des Downloader-Add-ons mit Port 8100. Den Hostnamen zeigt der Downloader im Reiter „Info“.
+  downloader_token:
+    name: Downloader-API-Token
+    description: Der api_token aus der Konfiguration des Downloader-Add-ons. Leer lassen, wenn Claude keine Downloads steuern soll.
