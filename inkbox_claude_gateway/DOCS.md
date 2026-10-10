@@ -26,6 +26,7 @@ nur auf deinem Home Assistant gespeichert, Schlüssel werden verdeckt angezeigt.
 | Inkbox-Identität | Handle deiner Identität, ohne `@`. |
 | Claude-OAuth-Token | Für ein Claude-Abo: auf einem Rechner mit Claude Code `claude setup-token` ausführen und das Token einfügen. |
 | Anthropic-API-Key | Alternative zum Token (Abrechnung pro Token). Eins von beiden reicht. |
+| Antwortsprache | Sprache, in der Claude antwortet (Standard: Deutsch). Schreibst du in einer anderen Sprache oder schickst eine Datei in einer anderen Sprache, antwortet Claude in dieser. „Automatisch“ = keine Vorgabe. |
 | Arbeitsordner | Standard `/share/claude-workspace`. |
 | Voice AI | Nur wenn die Identität eine Telefonnummer hat. |
 | Claude-Modell | Optional, leer = Standard. |
@@ -56,6 +57,14 @@ selben Chat. `/health` im Chat liefert einen Statusbericht.
 - **Freigaben:** Will Claude Befehle ausführen oder Dateien ändern, schickt dir
   der Gateway eine kurze Zusammenfassung. Antworte mit `1`/`yes`,
   `2`/`always` oder `3`/`no`.
+- **Antwortsprache ändern:** Im Tab Konfiguration auswählen, speichern und das
+  Add-on neu starten. Mit `/new` im Chat startest du danach eine frische
+  Unterhaltung.
+- **„Claude: NOT authenticated“ bei `/health`** ist mit OAuth-Token ein
+  Fehlalarm: Diese Anzeige kennt nur API-Key und Login-Datei. Maßgeblich ist
+  „Claude readiness ✓“ im Protokoll beim Start.
+- **Nachrichten direkt nach dem Start:** Was ankommt, bevor im Protokoll
+  `[bridge] ready` steht, erreicht den Gateway nicht. Dann einfach neu senden.
 - **Identität wechseln:** Feld ändern und neu starten. Dann wird automatisch ein
   neuer Signing-Key erzeugt.
 - **Fehler „Bootstrap fehlgeschlagen“:** Meist ein falscher Inkbox-API-Key oder

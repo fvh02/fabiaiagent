@@ -14,6 +14,7 @@ CLAUDE_OAUTH_TOKEN_OPT="$(opt claude_oauth_token)"
 PROJECT_DIR="$(opt project_dir)"
 VOICE_AI="$(opt voice_ai)"
 CLAUDE_MODEL_OPT="$(opt claude_model)"
+REPLY_LANGUAGE="$(opt reply_language)"
 
 die() { echo "[inkbox] FEHLER: $*" >&2; exit 1; }
 
@@ -33,6 +34,33 @@ chmod 600 "$INKBOX_CLAUDE_ENV_FILE"
 [ -n "$ANTHROPIC_API_KEY_OPT" ] && export ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY_OPT"
 [ -n "$CLAUDE_OAUTH_TOKEN_OPT" ] && export CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_OAUTH_TOKEN_OPT"
 [ -n "$CLAUDE_MODEL_OPT" ] && export CLAUDE_MODEL="$CLAUDE_MODEL_OPT"
+
+# The gateway's Claude sessions load ~/.claude/CLAUDE.md; keep the reply
+# language rule in a managed block there and leave anything else untouched.
+USER_MEMORY="$HOME/.claude/CLAUDE.md"
+BEGIN_MARK="<!-- inkbox-addon:reply-language:begin -->"
+END_MARK="<!-- inkbox-addon:reply-language:end -->"
+mkdir -p "$(dirname "$USER_MEMORY")"
+touch "$USER_MEMORY"
+sed -i "\|$BEGIN_MARK|,\|$END_MARK|d" "$USER_MEMORY"
+if [ -n "$REPLY_LANGUAGE" ] && [ "$REPLY_LANGUAGE" != "Automatisch" ]; then
+  cat >> "$USER_MEMORY" <<EOF
+$BEGIN_MARK
+## Reply language
+
+Reply in $REPLY_LANGUAGE by default, on every channel (iMessage, SMS, email, calls).
+
+Switch to another language only when:
+- the person writes to you in that language, or
+- the person sends a file, document or forwarded text in that language.
+
+In those cases reply in that language; go back to $REPLY_LANGUAGE once the person writes in $REPLY_LANGUAGE again. If the person explicitly asks for a language, use it.
+$END_MARK
+EOF
+  echo "[inkbox] Antwortsprache: $REPLY_LANGUAGE"
+else
+  echo "[inkbox] Antwortsprache: automatisch"
+fi
 
 # Rotate the webhook signing key only when this add-on doesn't hold one for
 # this identity yet; otherwise reuse it so restarts don't break delivery.
