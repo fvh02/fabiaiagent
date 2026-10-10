@@ -17,7 +17,8 @@ CLAUDE_MODEL_OPT="$(opt claude_model)"
 REPLY_LANGUAGE="$(opt reply_language)"
 ICLOUD_APPLE_ID_OPT="$(opt icloud_apple_id)"
 ICLOUD_APP_PASSWORD_OPT="$(opt icloud_app_password)"
-ICLOUD_CALENDAR_OPT="$(opt icloud_calendar)"
+ICLOUD_AI_CALENDAR_OPT="$(opt icloud_ai_calendar)"
+VOICE_TRANSCRIPTION="$(opt voice_transcription)"
 
 die() { echo "[inkbox] FEHLER: $*" >&2; exit 1; }
 
@@ -69,17 +70,22 @@ else
 fi
 
 # Tools Claude may use without asking: the plugin's read-only defaults, plus
-# the calendar tool when it is configured.
+# the calendar and transcription tools when they are configured.
 AUTO_ALLOWED="Read,Glob,Grep,WebFetch,WebSearch,TodoWrite,Task,NotebookRead"
 if [ -n "$ICLOUD_APPLE_ID_OPT" ] && [ -n "$ICLOUD_APP_PASSWORD_OPT" ]; then
   export ICLOUD_APPLE_ID="$ICLOUD_APPLE_ID_OPT" ICLOUD_APP_PASSWORD="$ICLOUD_APP_PASSWORD_OPT"
-  export ICLOUD_CALENDAR="$ICLOUD_CALENDAR_OPT"
+  export ICLOUD_AI_CALENDAR="$ICLOUD_AI_CALENDAR_OPT"
   AUTO_ALLOWED="$AUTO_ALLOWED,Bash(apple-calendar:*)"
+  AI_CALENDAR_RULE=""
+  if [ -n "$ICLOUD_AI_CALENDAR_OPT" ]; then
+    AI_CALENDAR_RULE="
+- Every event you create goes into the calendar \"$ICLOUD_AI_CALENDAR_OPT\" automatically (that marks it as added by you); don't pass --calendar for new events. If that calendar is missing, tell the person to create it in the Calendar app."
+  fi
   set_block apple-calendar "## Apple calendar
 
 The person's Apple (iCloud) calendar is available through the \`apple-calendar\` command. Use it whenever the person asks to add, check, move or remove appointments, reminders or events. Run it directly (not combined with other commands); it prints JSON.
 
-- \`apple-calendar calendars\` – list calendars and the default one
+- \`apple-calendar calendars\` – list calendars and where new events go
 - \`apple-calendar list [--from \"YYYY-MM-DD HH:MM\"] [--to ...] [--days N] [--calendar NAME]\` – events, default next 7 days, all calendars
 - \`apple-calendar add --title T --start \"YYYY-MM-DD HH:MM\" [--end ... | --duration MIN] [--location L] [--notes N] [--alarm MIN] [--calendar NAME]\`
 - \`apple-calendar add --all-day --title T --start YYYY-MM-DD [--end YYYY-MM-DD]\` – all-day, end date inclusive
@@ -87,15 +93,31 @@ The person's Apple (iCloud) calendar is available through the \`apple-calendar\`
 
 Rules:
 - Times are local time (${TZ:-UTC}). Resolve relative dates such as \"tomorrow\" or \"next Friday\" yourself from today's date.
-- Without an end time, events last 60 minutes. Without a calendar, the default calendar is used.
+- Without an end time, events last 60 minutes.$AI_CALENDAR_RULE
 - Ask before guessing when the date or time is ambiguous.
 - To move an event, add the new one, then delete the old one.
 - Before deleting, make sure you have the right event; if several match, ask.
 - After a change, confirm briefly with title, date, time and calendar."
-  echo "[inkbox] Apple-Kalender: aktiv${ICLOUD_CALENDAR_OPT:+ (Standard: $ICLOUD_CALENDAR_OPT)}"
+  echo "[inkbox] Apple-Kalender: aktiv${ICLOUD_AI_CALENDAR_OPT:+ (neue Termine in: $ICLOUD_AI_CALENDAR_OPT)}"
 else
   set_block apple-calendar
   echo "[inkbox] Apple-Kalender: nicht eingerichtet"
+fi
+
+if [ -n "$VOICE_TRANSCRIPTION" ] && [ "$VOICE_TRANSCRIPTION" != "aus" ]; then
+  export WHISPER_MODEL="$VOICE_TRANSCRIPTION" WHISPER_MODEL_DIR=/data/whisper-models
+  AUTO_ALLOWED="$AUTO_ALLOWED,Bash(transcribe:*)"
+  set_block voice-messages "## Voice messages
+
+When a message has audio attachments (audio/* content type, or files ending in .caf, .m4a, .mp3, .aac, .amr, .ogg, .opus, .wav), transcribe them first with \`transcribe FILE [FILE ...]\`. Run it directly (not combined with other commands); it prints JSON with the text and spoken language per file.
+
+Treat the transcript as what the person said to you and act on it exactly as if they had typed it. The spoken language counts as the language they wrote in. Don't repeat the full transcript back unless asked; if a part was unclear, say what you understood and ask. If transcription fails, tell the person briefly and ask them to type the message."
+  # Fetch/load the model now so the first voice message isn't slow.
+  ( transcribe --warmup 2>&1 | sed 's/^/[whisper] /' ) &
+  echo "[inkbox] Sprachnachrichten: aktiv (Modell $VOICE_TRANSCRIPTION)"
+else
+  set_block voice-messages
+  echo "[inkbox] Sprachnachrichten: aus"
 fi
 export INKBOX_AUTO_ALLOWED_TOOLS="$AUTO_ALLOWED"
 

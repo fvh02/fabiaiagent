@@ -1,0 +1,79 @@
+#!/opt/inkbox-claude/bin/python
+"""Transcribe voice messages locally with Whisper (faster-whisper).
+
+Usage: transcribe FILE [FILE ...]   prints JSON with the text per file
+       transcribe --warmup          downloads/loads the model and exits
+
+WHISPER_MODEL picks the model (tiny, base, small, medium, turbo), and
+WHISPER_MODEL_DIR where models are cached.
+"""
+
+import json
+import os
+import subprocess
+import sys
+import tempfile
+
+
+def load_model():
+    from faster_whisper import WhisperModel
+
+    name = os.environ.get("WHISPER_MODEL") or "small"
+    root = os.environ.get("WHISPER_MODEL_DIR") or os.path.expanduser("~/.cache/whisper")
+    os.makedirs(root, exist_ok=True)
+    return WhisperModel(name, device="cpu", compute_type="int8",
+                        cpu_threads=os.cpu_count() or 4, download_root=root)
+
+
+def to_wav(path, workdir):
+    """Convert any audio container (CAF, M4A, AMR, OGG, ...) to 16 kHz mono WAV."""
+    out = os.path.join(workdir, "audio.wav")
+    proc = subprocess.run(
+        ["ffmpeg", "-nostdin", "-loglevel", "error", "-y", "-i", path, "-ac", "1", "-ar", "16000", out],
+        capture_output=True, text=True,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(f"Audio konnte nicht gelesen werden: {proc.stderr.strip()[:300]}")
+    return out
+
+
+def transcribe(model, path):
+    if not os.path.isfile(path):
+        return {"file": path, "ok": False, "error": "Datei nicht gefunden."}
+    try:
+        with tempfile.TemporaryDirectory() as workdir:
+            wav = to_wav(path, workdir)
+            segments, info = model.transcribe(wav, beam_size=5, vad_filter=True)
+            text = " ".join(seg.text.strip() for seg in segments).strip()
+    except Exception as exc:
+        return {"file": path, "ok": False, "error": str(exc)}
+    return {
+        "file": path,
+        "ok": True,
+        "language": info.language,
+        "duration_seconds": round(info.duration, 1),
+        "text": text or "(keine Sprache erkannt)",
+    }
+
+
+def main():
+    args = sys.argv[1:]
+    if not args or args[0] in ("-h", "--help"):
+        print(__doc__.strip())
+        sys.exit(0 if args else 2)
+    try:
+        model = load_model()
+    except Exception as exc:
+        print(json.dumps({"ok": False, "error": f"Whisper-Modell konnte nicht geladen werden: {exc}"},
+                         ensure_ascii=False))
+        sys.exit(1)
+    if args == ["--warmup"]:
+        print(json.dumps({"ok": True, "model": os.environ.get("WHISPER_MODEL") or "small"}))
+        return
+    results = [transcribe(model, path) for path in args]
+    print(json.dumps({"ok": all(r["ok"] for r in results), "results": results}, ensure_ascii=False))
+    sys.exit(0 if all(r["ok"] for r in results) else 1)
+
+
+if __name__ == "__main__":
+    main()

@@ -2,8 +2,8 @@
 """Read and write the Apple (iCloud) calendar over CalDAV.
 
 Credentials come from the add-on configuration via the environment:
-ICLOUD_APPLE_ID, ICLOUD_APP_PASSWORD, optional ICLOUD_CALENDAR (default
-calendar name) and CALDAV_URL (defaults to iCloud). Times without an offset
+ICLOUD_APPLE_ID, ICLOUD_APP_PASSWORD, optional ICLOUD_AI_CALENDAR (calendar
+that every event created here goes into) and CALDAV_URL (defaults to iCloud). Times without an offset
 are read in the local time zone (TZ).
 """
 
@@ -81,11 +81,15 @@ def writable_calendars(principal):
     return result
 
 
+def ai_calendar_name():
+    return os.environ.get("ICLOUD_AI_CALENDAR", "").strip()
+
+
 def pick_calendar(principal, name):
     cals = writable_calendars(principal)
     if not cals:
         fail("Keine Kalender gefunden.")
-    wanted = (name or os.environ.get("ICLOUD_CALENDAR", "")).strip()
+    wanted = (name or "").strip()
     if not wanted:
         return cals[0]
     for cal in cals:
@@ -105,9 +109,8 @@ def fmt(value):
 
 def cmd_calendars(args):
     principal = connect()
-    default = os.environ.get("ICLOUD_CALENDAR", "").strip()
     cals = [calendar_name(c) for c in writable_calendars(principal)]
-    print(json.dumps({"ok": True, "calendars": cals, "default": default or (cals[0] if cals else "")},
+    print(json.dumps({"ok": True, "calendars": cals, "new_events_go_to": ai_calendar_name() or (cals[0] if cals else "")},
                      ensure_ascii=False))
 
 
@@ -180,8 +183,11 @@ def cmd_add(args):
     cal_obj.add("version", "2.0")
     cal_obj.add_component(event)
 
+    # Everything the assistant creates goes into the AI calendar when one is
+    # configured, so these events stay recognisable in the Calendar app.
+    target = ai_calendar_name() or args.calendar
     principal = connect()
-    cal = pick_calendar(principal, args.calendar)
+    cal = pick_calendar(principal, target)
     try:
         cal.save_event(cal_obj.to_ical().decode())
     except Exception as exc:
@@ -227,7 +233,7 @@ def main():
     p.add_argument("--location")
     p.add_argument("--notes")
     p.add_argument("--alarm", type=int, help="reminder N minutes before")
-    p.add_argument("--calendar")
+    p.add_argument("--calendar", help="ignored when ICLOUD_AI_CALENDAR is set")
 
     p = sub.add_parser("delete", help="delete an event by uid")
     p.add_argument("--uid", required=True)

@@ -20,9 +20,12 @@ configuration:
   icloud_app_password:
     name: App-specific password (calendar)
     description: Not your Apple password! Create one at account.apple.com → Sign-In and Security → App-Specific Passwords.
-  icloud_calendar:
-    name: Default calendar
-    description: Calendar for new events, e.g. "Home". Empty = first calendar.
+  icloud_ai_calendar:
+    name: Calendar for AI events
+    description: Every event Claude creates goes into this calendar. It must exist in the Calendar app. Empty = Claude picks the calendar.
+  voice_transcription:
+    name: Voice messages
+    description: Whisper model used to transcribe voice messages. tiny/base = fast, small = good balance, medium/turbo = more accurate but slower and more RAM. "aus" = off.
   project_dir:
     name: Working directory
     description: Directory Claude works in. Under /share it is also reachable via Samba.

@@ -20,9 +20,12 @@ configuration:
   icloud_app_password:
     name: App-spezifisches Passwort (Kalender)
     description: Nicht dein Apple-Passwort! Unter account.apple.com → Anmeldung und Sicherheit → App-spezifische Passwörter erzeugen.
-  icloud_calendar:
-    name: Standardkalender
-    description: Name des Kalenders für neue Termine, z. B. „Privat“. Leer = erster Kalender.
+  icloud_ai_calendar:
+    name: Kalender für KI-Termine
+    description: Alle Termine, die Claude anlegt, landen in diesem Kalender. Muss in der Kalender-App existieren. Leer = Claude wählt den Kalender.
+  voice_transcription:
+    name: Sprachnachrichten
+    description: Whisper-Modell zum Transkribieren von Sprachnachrichten. tiny/base = schnell, small = guter Kompromiss, medium/turbo = genauer, aber langsamer und mehr RAM. „aus“ = keine Transkription.
   project_dir:
     name: Arbeitsordner
     description: Ordner, in dem Claude arbeitet. Unter /share auch per Samba erreichbar.

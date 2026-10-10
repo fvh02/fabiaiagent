@@ -29,7 +29,8 @@ nur auf deinem Home Assistant gespeichert, Schlüssel werden verdeckt angezeigt.
 | Antwortsprache | Sprache, in der Claude antwortet (Standard: Deutsch). Schreibst du in einer anderen Sprache oder schickst eine Datei in einer anderen Sprache, antwortet Claude in dieser. „Automatisch“ = keine Vorgabe. |
 | Apple-ID (Kalender) | Optional, siehe [Apple-Kalender](#apple-kalender). |
 | App-spezifisches Passwort (Kalender) | Optional, siehe [Apple-Kalender](#apple-kalender). |
-| Standardkalender | Optional, z. B. `Privat`. |
+| Kalender für KI-Termine | Standard `Added by AI Agent`. Alle Termine, die Claude anlegt, landen dort. |
+| Sprachnachrichten | Whisper-Modell für Sprachnachrichten, Standard `small`. `aus` schaltet es ab. |
 | Arbeitsordner | Standard `/share/claude-workspace`. |
 | Voice AI | Nur wenn die Identität eine Telefonnummer hat. |
 | Claude-Modell | Optional, leer = Standard. |
@@ -50,12 +51,33 @@ löschen, z. B. per Nachricht „Trag mir morgen um 15 Uhr Zahnarzt ein“.
    - **Apple-ID (Kalender):** die E-Mail-Adresse deiner Apple-ID
    - **App-spezifisches Passwort:** das eben erzeugte Passwort (`xxxx-xxxx-xxxx-xxxx`),
      **nicht** dein normales Apple-Passwort
-   - **Standardkalender:** optional, Name wie in der Kalender-App, z. B. `Privat`
-3. Speichern und neu starten. Im Protokoll steht `[inkbox] Apple-Kalender: aktiv`.
+   - **Kalender für KI-Termine:** Name des Kalenders, in den alles kommt, was
+     Claude anlegt (Standard `Added by AI Agent`). Den Kalender vorher in der
+     Kalender-App anlegen, genau mit diesem Namen.
+3. Speichern und neu starten. Im Protokoll steht
+   `[inkbox] Apple-Kalender: aktiv (neue Termine in: Added by AI Agent)`.
+
+Termine aus allen Kalendern kann Claude lesen und auf Nachfrage löschen. Neue
+Termine landen immer im KI-Kalender, so erkennst du sie an dessen Farbe.
 
 Das Kalender-Werkzeug darf Claude ohne Rückfrage benutzen. Alle anderen
 Befehle fragen weiterhin per Nachricht nach. Zum Abschalten die beiden Felder
 leeren. Das App-Passwort kannst du jederzeit auf account.apple.com widerrufen.
+
+## Sprachnachrichten
+
+Schickst du per iMessage eine Sprachnachricht, wird sie direkt auf deinem Home
+Assistant mit Whisper in Text umgewandelt. Claude behandelt den Text so, als
+hättest du ihn getippt, z. B. „Trag mir Freitag 18 Uhr Kino ein“. Die Audios
+verlassen dein Gerät nicht.
+
+- Beim ersten Start lädt das Add-on das Modell herunter. Das Protokoll zeigt
+  danach `[whisper] {"ok": true, ...}`.
+- Modelle: `tiny`/`base` sind schnell, aber ungenauer. `small` ist ein guter
+  Kompromiss (ca. 500 MB, ~1 GB RAM). `medium`/`turbo` sind am genauesten, brauchen
+  aber deutlich mehr RAM und Zeit.
+- Die Modelle werden nicht in Home-Assistant-Backups gesichert und bei Bedarf
+  neu geladen.
 
 ## Prüfen
 
