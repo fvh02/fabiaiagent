@@ -64,6 +64,39 @@ Das Kalender-Werkzeug darf Claude ohne Rückfrage benutzen. Alle anderen
 Befehle fragen weiterhin per Nachricht nach. Zum Abschalten die beiden Felder
 leeren. Das App-Passwort kannst du jederzeit auf account.apple.com widerrufen.
 
+## claude.ai-Connectoren
+
+Mit dem OAuth-Token aus `claude setup-token` kann Claude nur antworten. Deine
+auf claude.ai hinzugefügten Connectoren (z. B. Notion, Spotify) lädt Claude Code
+nur mit einer **vollen claude.ai-Anmeldung**. Die erstellst du einmal auf einem
+PC und gibst sie an das Add-on weiter:
+
+1. **Samba share** installieren und starten (falls noch nicht geschehen).
+2. Auf deinem PC Claude Code starten (`claude`), dort `/login` eingeben, dein
+   Claude-Konto wählen und im Browser bestätigen. Danach `/exit`.
+3. Die Anmeldedatei in die Home-Assistant-Freigabe kopieren und vom PC
+   entfernen. Windows PowerShell:
+   ```powershell
+   New-Item -ItemType Directory -Force \\homeassistant.local\share\claude-login | Out-Null
+   Move-Item "$env:USERPROFILE\.claude\.credentials.json" \\homeassistant.local\share\claude-login\ -Force
+   ```
+   Linux: `~/.claude/.credentials.json` nach `share/claude-login/` verschieben.
+   macOS speichert die Anmeldung im Schlüsselbund, dort klappt das nicht.
+4. Add-on neu starten. Im Protokoll steht
+   `[inkbox] claude.ai-Anmeldung importiert.` und
+   `Claude: claude.ai-Anmeldung (Connectoren verfügbar)`. Die Datei in der
+   Freigabe wird dabei gelöscht.
+
+Wichtig:
+- Die Datei vom PC **verschieben**, nicht kopieren, und dort **nicht** `/logout`
+  ausführen. Zwei Geräte mit derselben Anmeldung würden sich gegenseitig
+  abmelden, und `/logout` widerruft sie. Willst du Claude Code am PC weiter
+  nutzen, melde dich dort danach einfach neu mit `/login` an.
+- Connector-Aufrufe fragen wie andere Werkzeuge zuerst per Nachricht nach.
+  Mit `2`/`always` erlaubst du einen Connector für die laufende Unterhaltung.
+- Zurück zum OAuth-Token: **claude.ai-Anmeldung verwenden** ausschalten und neu
+  starten. Das löscht die Anmeldung im Add-on.
+
 ## Sprachnachrichten
 
 Schickst du per iMessage eine Sprachnachricht, wird sie direkt auf deinem Home

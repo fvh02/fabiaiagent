@@ -4,7 +4,8 @@
 set -euo pipefail
 
 OPTIONS=/data/options.json
-opt() { jq -r --arg k "$1" '.[$k] // empty' "$OPTIONS"; }
+# Print option $1; missing/null print nothing ("// empty" would also drop false).
+opt() { jq -r --arg k "$1" 'if .[$k] == null then empty else .[$k] end' "$OPTIONS"; }
 
 INKBOX_API_KEY_OPT="$(opt inkbox_api_key)"
 IDENTITY="$(opt inkbox_identity)"
@@ -19,24 +20,48 @@ ICLOUD_APPLE_ID_OPT="$(opt icloud_apple_id)"
 ICLOUD_APP_PASSWORD_OPT="$(opt icloud_app_password)"
 ICLOUD_AI_CALENDAR_OPT="$(opt icloud_ai_calendar)"
 VOICE_TRANSCRIPTION="$(opt voice_transcription)"
+CLAUDE_AI_LOGIN="$(opt claude_ai_login)"
 
 die() { echo "[inkbox] FEHLER: $*" >&2; exit 1; }
 
 [ -n "$INKBOX_API_KEY_OPT" ] || die "inkbox_api_key ist nicht gesetzt (Add-on → Konfiguration)."
 [ -n "$IDENTITY" ] || die "inkbox_identity ist nicht gesetzt."
-[ -n "$ANTHROPIC_API_KEY_OPT$CLAUDE_OAUTH_TOKEN_OPT" ] \
-  || die "Setze anthropic_api_key oder claude_oauth_token (aus 'claude setup-token'), sonst kann Claude nicht antworten."
 
 # Keep Claude and Inkbox state in /data so it survives restarts and updates.
 export HOME=/data/home
 export INKBOX_CLAUDE_HOME="$HOME/.inkbox-claude"
 export INKBOX_CLAUDE_ENV_FILE="$INKBOX_CLAUDE_HOME/.env"
-mkdir -p "$INKBOX_CLAUDE_HOME" "$PROJECT_DIR"
+mkdir -p "$INKBOX_CLAUDE_HOME" "$PROJECT_DIR" "$HOME/.claude"
 touch "$INKBOX_CLAUDE_ENV_FILE"
 chmod 600 "$INKBOX_CLAUDE_ENV_FILE"
 
-[ -n "$ANTHROPIC_API_KEY_OPT" ] && export ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY_OPT"
-[ -n "$CLAUDE_OAUTH_TOKEN_OPT" ] && export CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_OAUTH_TOKEN_OPT"
+# A full claude.ai login (needed for claude.ai connectors) is imported once
+# from /share/claude-login/.credentials.json and then kept in /data. While it
+# is present, the token/API key are not exported: they would take precedence
+# and hide the connectors.
+CREDENTIALS="$HOME/.claude/.credentials.json"
+LOGIN_IMPORT=/share/claude-login/.credentials.json
+if [ "$CLAUDE_AI_LOGIN" = "false" ]; then
+  rm -f "$CREDENTIALS" "$LOGIN_IMPORT"
+elif [ -s "$LOGIN_IMPORT" ]; then
+  if jq -e '.claudeAiOauth.refreshToken' "$LOGIN_IMPORT" >/dev/null 2>&1; then
+    install -m 600 "$LOGIN_IMPORT" "$CREDENTIALS"
+    echo "[inkbox] claude.ai-Anmeldung importiert."
+  else
+    echo "[inkbox] WARNUNG: $LOGIN_IMPORT ist keine gültige claude.ai-Anmeldung, ignoriert."
+  fi
+  rm -f "$LOGIN_IMPORT"
+fi
+if [ -s "$CREDENTIALS" ]; then
+  echo "[inkbox] Claude: claude.ai-Anmeldung (Connectoren verfügbar)"
+else
+  [ -n "$ANTHROPIC_API_KEY_OPT$CLAUDE_OAUTH_TOKEN_OPT" ] \
+    || die "Setze claude_oauth_token (aus 'claude setup-token') oder anthropic_api_key, oder importiere eine claude.ai-Anmeldung (siehe Doku)."
+  [ -n "$ANTHROPIC_API_KEY_OPT" ] && export ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY_OPT"
+  [ -n "$CLAUDE_OAUTH_TOKEN_OPT" ] && export CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_OAUTH_TOKEN_OPT"
+  if [ -n "$ANTHROPIC_API_KEY_OPT" ]; then auth_kind="API-Key"; else auth_kind="OAuth-Token"; fi
+  echo "[inkbox] Claude: $auth_kind (ohne claude.ai-Connectoren)"
+fi
 [ -n "$CLAUDE_MODEL_OPT" ] && export CLAUDE_MODEL="$CLAUDE_MODEL_OPT"
 
 # The gateway's Claude sessions load ~/.claude/CLAUDE.md; the add-on keeps

@@ -11,6 +11,9 @@ configuration:
   anthropic_api_key:
     name: Anthropic API key
     description: Alternative to the OAuth token, billed per token (console.anthropic.com).
+  claude_ai_login:
+    name: Use claude.ai login
+    description: Uses an imported claude.ai login (for your claude.ai connectors), see docs. Turning it off deletes it and the OAuth token is used again.
   reply_language:
     name: Reply language
     description: Language Claude replies in. If you write in another language or send a file in another language, Claude replies in that one. "Automatisch" = no preference.
