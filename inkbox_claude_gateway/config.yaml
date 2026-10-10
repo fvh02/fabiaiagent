@@ -1,8 +1,9 @@
 name: Inkbox Claude Gateway
-version: "0.4.0"
+version: "0.4.1"
 slug: inkbox_claude_gateway
 description: Weckt Claude Code bei eingehenden E-Mails und iMessages über Inkbox.
 url: https://github.com/fvh02/fabiaiagent
+image: ghcr.io/fvh02/{arch}-inkbox-claude-gateway
 arch:
   - amd64
   - aarch64
