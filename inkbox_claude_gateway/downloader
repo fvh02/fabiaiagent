@@ -23,8 +23,8 @@ def fail(message: str) -> None:
 
 
 def call(method: str, path: str, body: dict | None = None):
-    base = os.environ.get("DOWNLOADER_URL", "").rstrip("/")
-    token = os.environ.get("DOWNLOADER_TOKEN", "")
+    base = os.environ.get("DOWNLOADER_URL", "").strip().rstrip("/")
+    token = os.environ.get("DOWNLOADER_TOKEN", "").strip()
     if not base or not token:
         fail("Downloader ist nicht eingerichtet (downloader_url/downloader_token im Gateway-Add-on).")
     data = json.dumps(body).encode() if body is not None else None
