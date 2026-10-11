@@ -195,6 +195,32 @@ esac
 
 inkbox-claude doctor || true
 
+# Messages that were being answered when the add-on stopped stay marked as
+# running. The gateway then tries to stop the old Claude process, can't find it
+# (a container restart ends every process) and pauses the conversation for
+# good, so even /new fails. A fresh container proves the old process is gone:
+# record that, and the gateway resolves those messages normally.
+python3 - "$INKBOX_CLAUDE_HOME" <<'PY'
+import sqlite3, sys
+from pathlib import Path
+
+for path in sorted(Path(sys.argv[1]).glob("*_state/*.sqlite3")):
+    db = sqlite3.connect(path)
+    try:
+        with db:
+            count = db.execute(
+                "UPDATE receipts SET state='uncertain', meta=json_set(meta, '$.host_fenced', json('true')) "
+                "WHERE state IN ('running','sending','uncertain') "
+                "AND COALESCE(json_extract(meta, '$.host_fenced'), 0) = 0"
+            ).rowcount
+        if count:
+            print(f"[inkbox] {count} beim letzten Stopp unterbrochene Nachricht(en) freigegeben ({path.parent.name})")
+    except sqlite3.Error as err:
+        print(f"[inkbox] WARNUNG: {path.name}: {err}")
+    finally:
+        db.close()
+PY
+
 echo "[inkbox] Starte Gateway ..."
 cd "$PROJECT_DIR"
 exec inkbox-claude run
