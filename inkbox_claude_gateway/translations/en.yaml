@@ -44,3 +44,15 @@ configuration:
   addon_management:
     name: Manage add-ons
     description: Claude may list add-ons and repositories and – after you confirm by message – add/remove repositories and install, update and uninstall add-ons.
+  ebay_client_id:
+    name: eBay Client ID
+    description: App ID from your eBay developer account (production keyset). Leave empty if Claude should not search eBay.
+  ebay_client_secret:
+    name: eBay Client Secret
+    description: Cert ID from the same production keyset.
+  ebay_zip:
+    name: Your postal code
+    description: For exact shipping costs in search results (optional).
+  ebay_notify_to:
+    name: Price alerts to
+    description: Your phone number as +49…, which receives new matches of your price alerts by iMessage. Empty = no price alerts.

@@ -102,6 +102,37 @@ Assistant zeigt deshalb eine niedrigere Sicherheitsbewertung an. Abschalten: Opt
 Dieses Gateway selbst aktualisierst du am besten in Home Assistant: ein Update startet es neu
 und würde Claude mitten in der Antwort unterbrechen.
 
+## eBay-Suche und Preisalarm
+
+Claude sucht für dich auf eBay.de das günstigste Angebot, z. B.:
+
+- „Such mir ein iPhone 15 128 GB, max. 450 €“
+- „Gibt's die Sony WH-1000XM5 gebraucht unter 200 €?“
+- „Sag mir Bescheid, wenn eine PS5 Slim unter 350 € auftaucht“ (Preisalarm)
+
+Claude schickt dir die drei besten Angebote mit Gesamtpreis inkl. Versand, Zustand,
+Verkäuferbewertung und Link. Zubehör, defekte Geräte und schlecht bewertete Verkäufer
+filtert es vorher heraus. Auffällig billige Angebote markiert es als Warnung.
+**Kaufen tust du selbst** über den Link. Claude kauft nie, bietet nie und fragt nie nach
+Zahlungs- oder Anmeldedaten.
+
+Einrichtung (einmalig, kostenlos):
+
+1. Auf [developer.ebay.com](https://developer.ebay.com) mit deinem eBay-Konto ein
+   Entwicklerkonto anlegen (Join). Die Freischaltung kann ein bis zwei Werktage dauern.
+2. Unter **Application Keys** einen Namen eingeben und das **Production**-Keyset erstellen.
+3. Falls eBay nach der „Marketplace Account Deletion Notification“ fragt:
+   **Exempted** wählen („I do not persist eBay data“) und bestätigen.
+4. Hier unter **Konfiguration** eintragen:
+   - **eBay Client ID** = *App ID (Client ID)* aus dem Production-Keyset
+   - **eBay Client Secret** = *Cert ID (Client Secret)*
+   - **Deine Postleitzahl** (für genaue Versandkosten, optional)
+   - **Preisalarm an** = deine Handynummer im Format `+49…` (für Preisalarme)
+5. Speichern und neu starten. Im Protokoll steht `[inkbox] eBay: aktiv`.
+
+Preisalarme prüft das Gateway alle 30 Minuten. Neue passende Angebote kommen per iMessage,
+jedes nur einmal. „Welche Preisalarme habe ich?“ und „Lösch den PS5-Alarm“ gehen auch.
+
 ## claude.ai-Connectoren
 
 Mit dem OAuth-Token aus `claude setup-token` kann Claude nur antworten. Deine

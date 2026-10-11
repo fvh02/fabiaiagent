@@ -1,0 +1,352 @@
+#!/usr/bin/env python3
+"""Search eBay for the best offers and watch prices (official Browse API). It never buys anything.
+
+  ebay search QUERY [--max EUR] [--min EUR] [--condition new|used|any] [--auction]
+                    [--country DE|EU|any] [--min-rating PCT] [--limit N]
+      Cheapest matching offers, price incl. shipping, seller rating, link. Accessories and
+      dubious listings are filtered out; the rest is sorted by total price.
+  ebay item ITEM_ID              details of one offer (condition, returns, shipping, description)
+  ebay watch add QUERY [same options as search]
+                                 check regularly, send an iMessage for new matching offers
+  ebay watch list
+  ebay watch remove WATCH_ID
+  ebay watch check               run all watches now (the add-on does this every 30 minutes)
+
+Needs EBAY_CLIENT_ID and EBAY_CLIENT_SECRET (eBay developer production keyset). Prints JSON.
+"""
+
+import base64
+import html
+import json
+import os
+import re
+import sys
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+import uuid
+from pathlib import Path
+
+API = os.environ.get("EBAY_API_BASE", "https://api.ebay.com").rstrip("/")
+MARKETPLACE = os.environ.get("EBAY_MARKETPLACE", "EBAY_DE")
+STATE_DIR = Path(os.environ.get("EBAY_STATE_DIR", "/data/ebay"))
+EU = "AT,BE,BG,CY,CZ,DE,DK,EE,ES,FI,FR,GR,HR,HU,IE,IT,LT,LU,LV,MT,NL,PL,PT,RO,SE,SI,SK"
+# Listings that are not the item itself (unless the query asks for them).
+JUNK = ["nur ovp", "nur karton", "leerkarton", "originalverpackung ohne", "ohne gerät", "attrappe", "dummy",
+        "ersatzteil", "defekt", "bastler", "für teile", "for parts", "gesperrt", "icloud", "nur foto", "bild von"]
+# Accessories: dropped only when the listing is clearly the accessory ("Hülle für iPhone 15"),
+# not when it comes with the item ("iPhone 15 inkl. Hülle").
+ACCESSORY = ["hülle", "case", "cover", "schutzglas", "panzerglas", "displayschutz", "schutzfolie", "tasche",
+             "ladekabel", "netzteil", "halterung", "skin", "aufkleber", "anleitung"]
+
+
+def is_accessory(title: str, query: str) -> bool:
+    words = re.findall(r"\w+", title)
+    first = words[0] if words else ""
+    for a in ACCESSORY:
+        if a in query or a not in title:
+            continue
+        if first.startswith(a) or re.search(rf"{a}\w*\s+(für|for|kompatibel|passend)", title):
+            return True
+    return False
+
+
+def out(data) -> None:
+    print(json.dumps(data, ensure_ascii=False, indent=1))
+
+
+def fail(message: str) -> None:
+    out({"error": message})
+    sys.exit(1)
+
+
+# -- eBay API -------------------------------------------------------------------
+def token() -> str:
+    cid, secret = os.environ.get("EBAY_CLIENT_ID", "").strip(), os.environ.get("EBAY_CLIENT_SECRET", "").strip()
+    if not cid or not secret:
+        fail("eBay ist nicht eingerichtet (ebay_client_id / ebay_client_secret im Gateway-Add-on).")
+    cache = STATE_DIR / "token.json"
+    try:
+        cached = json.loads(cache.read_text())
+        if cached["client"] == cid and cached["expires"] > time.time() + 60:
+            return cached["token"]
+    except (OSError, ValueError, KeyError):
+        pass
+    body = urllib.parse.urlencode({"grant_type": "client_credentials", "scope": "https://api.ebay.com/oauth/api_scope"}).encode()
+    request = urllib.request.Request(API + "/identity/v1/oauth2/token", data=body, method="POST")
+    request.add_header("Authorization", "Basic " + base64.b64encode(f"{cid}:{secret}".encode()).decode())
+    request.add_header("Content-Type", "application/x-www-form-urlencoded")
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            data = json.loads(response.read())
+    except urllib.error.HTTPError as err:
+        fail(f"eBay-Anmeldung fehlgeschlagen (HTTP {err.code}). Stimmen Client-ID und Secret (Production-Keyset)?")
+    except (urllib.error.URLError, OSError) as err:
+        fail(f"eBay nicht erreichbar: {getattr(err, 'reason', err)}")
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    cache.write_text(json.dumps({"client": cid, "token": data["access_token"], "expires": time.time() + int(data.get("expires_in", 7200))}))
+    cache.chmod(0o600)
+    return data["access_token"]
+
+
+def get(path: str, params: dict | None = None) -> dict:
+    url = API + path + ("?" + urllib.parse.urlencode(params) if params else "")
+    request = urllib.request.Request(url)
+    request.add_header("Authorization", "Bearer " + token())
+    request.add_header("X-EBAY-C-MARKETPLACE-ID", MARKETPLACE)
+    request.add_header("Accept-Language", "de-DE")
+    zip_code = os.environ.get("EBAY_ZIP", "").strip()
+    if zip_code:  # lets eBay calculate the shipping cost to this address
+        request.add_header("X-EBAY-C-ENDUSERCTX", "contextualLocation=" + urllib.parse.quote(f"country=DE,zip={zip_code}"))
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            return json.loads(response.read())
+    except urllib.error.HTTPError as err:
+        text = err.read().decode(errors="replace")
+        try:
+            text = json.loads(text)["errors"][0]["message"]
+        except (ValueError, KeyError, IndexError):
+            pass
+        fail(f"eBay meldet (HTTP {err.code}): {text[:300]}")
+    except (urllib.error.URLError, OSError) as err:
+        fail(f"eBay nicht erreichbar: {getattr(err, 'reason', err)}")
+
+
+# -- search ---------------------------------------------------------------------
+def parse_options(args: list[str]) -> dict:
+    opts = {"query": [], "max": None, "min": None, "condition": "any", "auction": False,
+            "country": "DE", "min_rating": 97.0, "limit": 8}
+    i = 0
+    while i < len(args):
+        a = args[i]
+        if a in ("--max", "--min", "--condition", "--country", "--min-rating", "--limit") and i + 1 < len(args):
+            value = args[i + 1].replace(",", ".").replace("€", "").strip()
+            key = a[2:].replace("-", "_")
+            if key in ("max", "min", "min_rating"):
+                try:
+                    opts[key] = float(value)
+                except ValueError:
+                    fail(f"Ungültige Zahl für {a}: {args[i + 1]}")
+            elif key == "limit":
+                opts[key] = max(1, min(25, int(float(value))))
+            else:
+                opts[key] = value.lower() if key == "condition" else value.upper()
+            i += 2
+        elif a == "--auction":
+            opts["auction"] = True
+            i += 1
+        else:
+            opts["query"].append(a)
+            i += 1
+    opts["query"] = " ".join(opts["query"]).strip()
+    if not opts["query"]:
+        fail("Bitte angeben, wonach gesucht werden soll")
+    if opts["condition"] not in ("new", "used", "any"):
+        fail("--condition muss new, used oder any sein")
+    return opts
+
+
+def money(m) -> float | None:
+    try:
+        return round(float(m["value"]), 2)
+    except (TypeError, KeyError, ValueError):
+        return None
+
+
+def search(opts: dict) -> list[dict]:
+    filters = ["buyingOptions:{AUCTION}" if opts["auction"] else "buyingOptions:{FIXED_PRICE}", "deliveryCountry:DE"]
+    if opts["max"] is not None or opts["min"] is not None:
+        lo = "" if opts["min"] is None else f"{opts['min']:.2f}"
+        hi = "" if opts["max"] is None else f"{opts['max']:.2f}"
+        filters += [f"price:[{lo}..{hi}]", "priceCurrency:EUR"]
+    if opts["condition"] == "new":
+        filters.append("conditions:{NEW}")
+    elif opts["condition"] == "used":
+        filters.append("conditions:{USED}")
+    if opts["country"] == "DE":
+        filters.append("itemLocationCountry:DE")
+    data = get("/buy/browse/v1/item_summary/search", {
+        "q": opts["query"], "limit": 100, "sort": "price", "filter": ",".join(filters),
+    })
+    query_words = opts["query"].lower()
+    results = []
+    for it in data.get("itemSummaries") or []:
+        title = html.unescape(it.get("title", ""))
+        lowered = title.lower() + " "
+        if any(j in lowered and j not in query_words for j in JUNK) or is_accessory(lowered, query_words):
+            continue
+        location = (it.get("itemLocation") or {}).get("country")
+        if opts["country"] == "EU" and location and location not in EU.split(","):
+            continue
+        seller = it.get("seller") or {}
+        try:
+            rating = float(seller.get("feedbackPercentage") or 0)
+        except ValueError:
+            rating = 0.0
+        score = int(seller.get("feedbackScore") or 0)
+        if rating < opts["min_rating"] or score < 5:
+            continue
+        price = money(it.get("currentBidPrice")) if opts["auction"] else None
+        price = price if price is not None else money(it.get("price"))
+        if price is None:
+            continue
+        shipping = None
+        for option in it.get("shippingOptions") or []:
+            cost = money(option.get("shippingCost"))
+            if cost is not None:
+                shipping = cost if shipping is None else min(shipping, cost)
+        total = round(price + (shipping or 0), 2)
+        if opts["max"] is not None and total > opts["max"] + 0.001:
+            continue
+        results.append({
+            "id": it.get("itemId"), "title": title, "price": price, "shipping": shipping,
+            "total": total, "shipping_unknown": shipping is None,
+            "condition": it.get("condition"), "location": location,
+            "seller": seller.get("username"), "seller_rating": rating, "seller_reviews": score,
+            "auction": "AUCTION" in (it.get("buyingOptions") or []),
+            "bids": it.get("bidCount"), "ends": it.get("itemEndDate"),
+            "url": it.get("itemWebUrl"), "image": (it.get("image") or {}).get("imageUrl"),
+        })
+    results.sort(key=lambda r: (r["total"], r["shipping_unknown"]))
+    if len(results) >= 3:
+        # Far below everything else is a classic scam signal.
+        middle = sorted(r["total"] for r in results)[len(results) // 2]
+        for r in results:
+            if r["total"] < middle * 0.45:
+                r["warning"] = "auffällig billig – genau prüfen"
+    return results
+
+
+def cmd_search(args: list[str]) -> None:
+    opts = parse_options(args)
+    results = search(opts)
+    out({"query": opts["query"], "max": opts["max"], "found": len(results), "offers": results[: opts["limit"]]})
+
+
+def cmd_item(args: list[str]) -> None:
+    if not args:
+        fail("Bitte die Artikel-ID angeben (aus ebay search)")
+    item_id = args[0]
+    if item_id.isdigit():
+        item_id = f"v1|{item_id}|0"
+    it = get("/buy/browse/v1/item/" + urllib.parse.quote(item_id, safe=""))
+    description = re.sub(r"<[^>]+>", " ", it.get("description") or "")
+    description = re.sub(r"\s+", " ", html.unescape(description)).strip()
+    returns = it.get("returnTerms") or {}
+    out({
+        "id": it.get("itemId"), "title": it.get("title"), "price": money(it.get("price")),
+        "condition": it.get("condition"), "condition_text": it.get("conditionDescription"),
+        "shipping": [{"service": s.get("shippingServiceCode"), "cost": money(s.get("shippingCost")),
+                      "min_days": s.get("minEstimatedDeliveryDate"), "max_days": s.get("maxEstimatedDeliveryDate")}
+                     for s in it.get("shippingOptions") or []],
+        "returns_accepted": returns.get("returnsAccepted"), "return_days": (returns.get("returnPeriod") or {}).get("value"),
+        "seller": (it.get("seller") or {}).get("username"),
+        "seller_rating": (it.get("seller") or {}).get("feedbackPercentage"),
+        "location": (it.get("itemLocation") or {}).get("city"),
+        "description": description[:1500], "url": it.get("itemWebUrl"),
+    })
+
+
+# -- watches --------------------------------------------------------------------
+def load_watches() -> list[dict]:
+    try:
+        return json.loads((STATE_DIR / "watches.json").read_text())
+    except (OSError, ValueError):
+        return []
+
+
+def save_watches(watches: list[dict]) -> None:
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    tmp = STATE_DIR / "watches.tmp"
+    tmp.write_text(json.dumps(watches, ensure_ascii=False))
+    tmp.replace(STATE_DIR / "watches.json")
+
+
+def cmd_watch(args: list[str]) -> None:
+    sub, rest = (args[0], args[1:]) if args else ("list", [])
+    watches = load_watches()
+    if sub == "add":
+        opts = parse_options(rest)
+        if opts["max"] is None:
+            fail("Für eine Preisbeobachtung bitte einen Höchstpreis angeben (--max)")
+        current = search(opts)
+        watch = {"id": uuid.uuid4().hex[:6], "args": rest, "query": opts["query"], "max": opts["max"],
+                 "created": time.time(), "seen": [r["id"] for r in current]}
+        watches.append(watch)
+        save_watches(watches)
+        notify = bool(os.environ.get("EBAY_NOTIFY_TO"))
+        out({"added": watch["id"], "query": opts["query"], "max": opts["max"], "already_available": current[:3],
+             "notifications": "per iMessage" if notify else "aus – im Gateway ebay_notify_to setzen"})
+    elif sub == "list":
+        out([{"id": w["id"], "query": w["query"], "max": w["max"], "since": time.strftime("%d.%m.%Y", time.localtime(w["created"]))}
+             for w in watches])
+    elif sub == "remove" and rest:
+        left = [w for w in watches if w["id"] != rest[0]]
+        if len(left) == len(watches):
+            fail("Keine Preisbeobachtung mit dieser ID")
+        save_watches(left)
+        out({"removed": rest[0]})
+    elif sub == "check":
+        cmd_check()
+    else:
+        fail("ebay watch add|list|remove|check")
+
+
+def send_imessage(text: str) -> bool:
+    to, key = os.environ.get("EBAY_NOTIFY_TO", "").strip(), os.environ.get("INKBOX_API_KEY", "").strip()
+    if not to or not key:
+        return False
+    url = os.environ.get("INKBOX_IMESSAGE_URL", "https://inkbox.ai/api/v1/imessage/messages")
+    request = urllib.request.Request(url, data=json.dumps({"to": to, "text": text}).encode(), method="POST")
+    request.add_header("X-API-Key", key)
+    request.add_header("Content-Type", "application/json")
+    try:
+        with urllib.request.urlopen(request, timeout=30):
+            return True
+    except (urllib.error.URLError, OSError):
+        return False
+
+
+def cmd_check() -> None:
+    """Run by the gateway every 30 minutes: report new offers for every watch."""
+    watches = load_watches()
+    report = []
+    for w in watches:
+        try:
+            results = search(parse_options(w["args"]))
+        except SystemExit:
+            continue
+        new = [r for r in results if r["id"] not in w["seen"]]
+        if new:
+            best = new[0]
+            text = (f"🔔 eBay: neues Angebot für „{w['query']}“ unter {w['max']:.0f} €\n"
+                    f"{best['title']}\n{best['total']:.2f} € inkl. Versand · {best.get('condition') or ''} · "
+                    f"Verkäufer {best['seller_rating']:.0f} % ({best['seller_reviews']})\n{best['url']}")
+            if len(new) > 1:
+                text += f"\n(+{len(new) - 1} weitere)"
+            if send_imessage(text):
+                w["seen"].extend(r["id"] for r in new)
+                report.append({"watch": w["id"], "new": len(new)})
+        w["seen"] = w["seen"][-500:]
+    save_watches(watches)
+    out({"checked": len(watches), "notified": report})
+
+
+def main(argv: list[str]) -> None:
+    if not argv or argv[0] in ("-h", "--help"):
+        print(__doc__.strip())
+        return
+    cmd, args = argv[0], argv[1:]
+    if cmd == "search":
+        cmd_search(args)
+    elif cmd == "item":
+        cmd_item(args)
+    elif cmd == "watch":
+        cmd_watch(args)
+    else:
+        fail("Unbekannter Aufruf. Siehe: ebay --help")
+
+
+if __name__ == "__main__":
+    main(sys.argv[1:])

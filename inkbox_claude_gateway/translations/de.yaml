@@ -44,3 +44,15 @@ configuration:
   addon_management:
     name: Add-ons verwalten
     description: Claude darf Add-ons und Repositories anzeigen und – nach deiner Bestätigung per Nachricht – Repositories hinzufügen/entfernen sowie Add-ons installieren, aktualisieren und deinstallieren.
+  ebay_client_id:
+    name: eBay Client ID
+    description: App ID aus deinem eBay-Entwicklerkonto (Production-Keyset). Leer lassen, wenn Claude nicht auf eBay suchen soll.
+  ebay_client_secret:
+    name: eBay Client Secret
+    description: Cert ID aus demselben Production-Keyset.
+  ebay_zip:
+    name: Deine Postleitzahl
+    description: Für genaue Versandkosten in den Suchergebnissen (optional).
+  ebay_notify_to:
+    name: Preisalarm an
+    description: Deine Telefonnummer im Format +49…, an die neue Treffer deiner Preisalarme per iMessage gehen. Leer = keine Preisalarme.

@@ -24,7 +24,7 @@ RUN bundled="$(/opt/inkbox-claude/bin/python -c 'import claude_agent_sdk, os; pr
 ENV PATH="/opt/inkbox-claude/bin:${PATH}"
 
 COPY run.sh /run.sh
-COPY apple-calendar transcribe downloader ha-addons /usr/local/bin/
-RUN chmod +x /run.sh /usr/local/bin/apple-calendar /usr/local/bin/transcribe /usr/local/bin/downloader /usr/local/bin/ha-addons
+COPY apple-calendar transcribe downloader ha-addons ebay /usr/local/bin/
+RUN chmod +x /run.sh /usr/local/bin/apple-calendar /usr/local/bin/transcribe /usr/local/bin/downloader /usr/local/bin/ha-addons /usr/local/bin/ebay
 
 CMD ["/run.sh"]
