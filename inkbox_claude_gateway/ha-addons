@@ -1,0 +1,232 @@
+#!/usr/bin/env python3
+"""Manage Home Assistant add-ons and add-on repositories through the Supervisor API.
+
+Read-only:
+  ha-addons list [TEXT]          installed add-ons (version, update available, state)
+  ha-addons updates              installed add-ons with an update
+  ha-addons store [TEXT]         add-ons available in the store
+  ha-addons repos                add-on repositories
+  ha-addons info ADDON
+
+Changes:
+  ha-addons add-repo URL         add a repository (then lists its add-ons)
+  ha-addons remove-repo REPO     remove a repository (URL, name or slug)
+  ha-addons install ADDON        install an add-on (does not start it)
+  ha-addons update ADDON|all     update one or all add-ons with an update
+  ha-addons uninstall ADDON
+  ha-addons start|stop|restart ADDON
+  ha-addons reload               re-read all repositories
+
+ADDON can be the slug (e.g. 4b225c51_downloader), the name or a unique part of it.
+Prints JSON. Needs SUPERVISOR_TOKEN (set by Home Assistant for add-ons with hassio_api).
+"""
+
+import json
+import os
+import sys
+import urllib.error
+import urllib.request
+
+BASE = os.environ.get("SUPERVISOR_URL", "http://supervisor").rstrip("/")
+
+
+def out(data) -> None:
+    print(json.dumps(data, ensure_ascii=False, indent=1))
+
+
+def fail(message: str) -> None:
+    out({"error": message})
+    sys.exit(1)
+
+
+def call(method: str, path: str, body: dict | None = None, timeout: int = 60):
+    token = os.environ.get("SUPERVISOR_TOKEN", "")
+    if not token:
+        fail("Kein Zugriff auf Home Assistant (SUPERVISOR_TOKEN fehlt). Ist die Add-on-Verwaltung im Gateway eingeschaltet?")
+    data = json.dumps(body).encode() if body is not None else None
+    request = urllib.request.Request(BASE + path, data=data, method=method)
+    request.add_header("Authorization", f"Bearer {token}")
+    if data is not None:
+        request.add_header("Content-Type", "application/json")
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            raw = response.read()
+    except urllib.error.HTTPError as err:
+        text = err.read().decode(errors="replace")
+        try:
+            text = json.loads(text).get("message") or text
+        except ValueError:
+            pass
+        raise SupervisorError(err.code, text.strip() or err.reason)
+    except (urllib.error.URLError, OSError) as err:
+        fail(f"Supervisor nicht erreichbar: {getattr(err, 'reason', err)}")
+    if not raw:
+        return None
+    payload = json.loads(raw)
+    if payload.get("result") == "error":
+        raise SupervisorError(400, payload.get("message") or "Fehler")
+    return payload.get("data")
+
+
+class SupervisorError(Exception):
+    def __init__(self, code: int, message: str):
+        super().__init__(message)
+        self.code = code
+
+
+def installed() -> list[dict]:
+    return (call("GET", "/addons") or {}).get("addons", [])
+
+
+def store_addons() -> list[dict]:
+    return (call("GET", "/store/addons") or {}).get("addons", [])
+
+
+def repositories() -> list[dict]:
+    data = call("GET", "/store/repositories")
+    return data if isinstance(data, list) else (data or {}).get("repositories", [])
+
+
+def short(addon: dict) -> dict:
+    keys = ("name", "slug", "version", "version_latest", "update_available", "state", "installed", "repository", "description")
+    return {k: addon[k] for k in keys if k in addon}
+
+
+def matches(addons: list[dict], text: str) -> list[dict]:
+    t = text.strip().lower()
+    return [a for a in addons if t in a.get("name", "").lower() or t in a.get("slug", "").lower()]
+
+
+def resolve(text: str, pool: list[dict], exact: bool = False) -> dict:
+    """Find exactly one add-on by slug or name; read-only commands also accept a unique part.
+
+    Changing commands use exact=True: the command the person approves must name the add-on
+    it acts on, so a partial word never silently picks a different add-on."""
+    t = text.strip().lower()
+    for test in (
+        lambda a: a.get("slug", "").lower() == t,
+        lambda a: a.get("name", "").lower() == t,
+        lambda a: a.get("slug", "").lower().split("_", 1)[-1] == t,
+    ):
+        found = [a for a in pool if test(a)]
+        if len(found) == 1:
+            return found[0]
+    found = matches(pool, t)
+    if len(found) == 1 and not exact:
+        return found[0]
+    if not found:
+        fail(f"Kein Add-on gefunden für „{text}“")
+    if exact:
+        fail(f"Bitte den genauen Namen oder Slug angeben. Passend zu „{text}“: " + ", ".join(f"{a['name']} ({a['slug']})" for a in found[:10]))
+    fail(f"Mehrere Add-ons passen zu „{text}“: " + ", ".join(f"{a['name']} ({a['slug']})" for a in found[:10]))
+
+
+def resolve_repo(text: str, exact: bool = False) -> dict:
+    t = text.strip().rstrip("/").lower().removesuffix(".git")
+    repos = repositories()
+    for test in (
+        lambda r: (r.get("source") or r.get("url") or "").rstrip("/").lower().removesuffix(".git") == t,
+        lambda r: r.get("slug", "").lower() == t,
+        lambda r: r.get("name", "").lower() == t,
+    ):
+        found = [r for r in repos if test(r)]
+        if len(found) == 1:
+            return found[0]
+    found = [r for r in repos if t in (r.get("name", "") + " " + (r.get("source") or r.get("url") or "")).lower()]
+    if len(found) == 1 and not exact:
+        return found[0]
+    if not found:
+        fail(f"Kein Repository gefunden für „{text}“")
+    if exact:
+        fail(f"Bitte die genaue Adresse, den Namen oder Slug angeben. Passend zu „{text}“: " + ", ".join(f"{r.get('name')} ({r.get('source') or r.get('url')})" for r in found))
+    fail(f"Mehrere Repositories passen zu „{text}“: " + ", ".join(r.get("name", r.get("slug")) for r in found))
+
+
+def update(addon: dict) -> dict:
+    slug = addon["slug"]
+    try:
+        call("POST", f"/store/addons/{slug}/update", {"backup": False}, timeout=1800)
+    except SupervisorError as err:
+        if err.code != 404:
+            raise
+        call("POST", f"/addons/{slug}/update", {}, timeout=1800)  # older Supervisor versions
+    return {"name": addon["name"], "slug": slug, "from": addon.get("version"), "to": addon.get("version_latest")}
+
+
+def main(argv: list[str]) -> None:
+    if not argv or argv[0] in ("-h", "--help"):
+        print(__doc__.strip())
+        return
+    cmd, args = argv[0], argv[1:]
+    arg = " ".join(args).strip()
+
+    if cmd == "list":
+        addons = matches(installed(), arg) if arg else installed()
+        out([short(a) for a in addons])
+    elif cmd == "updates":
+        out([short(a) for a in installed() if a.get("update_available")])
+    elif cmd == "store":
+        addons = [a for a in store_addons() if not a.get("installed")]
+        out([short(a) for a in (matches(addons, arg) if arg else addons)])
+    elif cmd == "repos":
+        out([{"name": r.get("name"), "slug": r.get("slug"), "url": r.get("source") or r.get("url")} for r in repositories()])
+    elif cmd == "info" and arg:
+        addon = resolve(arg, store_addons())
+        out(short(call("GET", f"/addons/{addon['slug']}/info") if addon.get("installed") else addon))
+    elif cmd == "add-repo" and arg:
+        if not arg.startswith(("https://", "http://")):
+            fail("Bitte die vollständige Adresse des Repositories angeben, z. B. https://github.com/name/repo")
+        call("POST", "/store/repositories", {"repository": arg}, timeout=300)
+        repo = resolve_repo(arg)
+        new = [short(a) for a in store_addons() if a.get("repository") == repo.get("slug")]
+        out({"added": repo.get("name"), "slug": repo.get("slug"), "addons": new})
+    elif cmd == "remove-repo" and arg:
+        repo = resolve_repo(arg, exact=True)
+        still = [a["name"] for a in installed() if a.get("repository") == repo.get("slug")]
+        if still:
+            fail("Aus diesem Repository sind noch Add-ons installiert: " + ", ".join(still) + ". Erst deinstallieren.")
+        call("DELETE", f"/store/repositories/{repo['slug']}")
+        out({"removed": repo.get("name"), "slug": repo.get("slug")})
+    elif cmd == "install" and arg:
+        addon = resolve(arg, store_addons(), exact=True)
+        if addon.get("installed"):
+            fail(f"{addon['name']} ist schon installiert")
+        call("POST", f"/store/addons/{addon['slug']}/install", {}, timeout=1800)
+        out({"installed": addon["name"], "slug": addon["slug"], "version": addon.get("version"),
+             "hint": "Das Add-on ist installiert, aber noch nicht gestartet (ha-addons start)."})
+    elif cmd == "update" and arg:
+        pending = [a for a in installed() if a.get("update_available")]
+        targets = pending if arg.lower() in ("all", "alle") else [resolve(arg, installed(), exact=True)]
+        if not targets:
+            out({"updated": [], "info": "Alle Add-ons sind aktuell."})
+            return
+        done, errors = [], []
+        for addon in targets:
+            if not addon.get("update_available"):
+                errors.append(f"{addon['name']} ist schon aktuell ({addon.get('version')})")
+                continue
+            try:
+                done.append(update(addon))
+            except SupervisorError as err:
+                errors.append(f"{addon['name']}: {err}")
+        out({"updated": done, "errors": errors})
+    elif cmd == "uninstall" and arg:
+        addon = resolve(arg, installed(), exact=True)
+        call("POST", f"/addons/{addon['slug']}/uninstall", {}, timeout=600)
+        out({"uninstalled": addon["name"], "slug": addon["slug"]})
+    elif cmd in ("start", "stop", "restart") and arg:
+        addon = resolve(arg, installed(), exact=True)
+        call("POST", f"/addons/{addon['slug']}/{cmd}", {}, timeout=600)
+        out({cmd: addon["name"], "slug": addon["slug"]})
+    elif cmd == "reload":
+        call("POST", "/store/reload", {}, timeout=300)
+        out({"reloaded": True})
+    else:
+        fail("Unbekannter Aufruf. Siehe: ha-addons --help")
+
+
+if __name__ == "__main__":
+    try:
+        main(sys.argv[1:])
+    except SupervisorError as err:
+        fail(f"Home Assistant meldet: {err}")

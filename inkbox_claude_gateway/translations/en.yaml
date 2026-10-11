@@ -41,3 +41,6 @@ configuration:
   downloader_url:
     name: Downloader address
     description: Internal address of the Downloader add-on with port 8099. The Downloader shows its hostname on its Info tab. Leave empty if Claude should not control downloads.
+  addon_management:
+    name: Manage add-ons
+    description: Claude may list add-ons and repositories and – after you confirm by message – add/remove repositories and install, update and uninstall add-ons.

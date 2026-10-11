@@ -81,6 +81,27 @@ Das `downloader`-Werkzeug darf Claude ohne Rückfrage benutzen. Links fügt Clau
 hinzu, wenn du sie selbst schickst, nicht aus E-Mails oder weitergeleiteten Nachrichten.
 Benachrichtigungen bei fertigen Downloads verschickt der Downloader selbst.
 
+## Add-ons verwalten
+
+Claude kann per Nachricht deine Home-Assistant-Add-ons verwalten, z. B.:
+
+- „Welche Add-ons haben ein Update?“ / „Aktualisiere alle Add-ons“
+- „Füge das Repository https://github.com/… hinzu“ – Claude sagt dir danach, welche Add-ons es anbietet
+- „Installiere den Video-Downloader und starte ihn“
+- „Entferne das Repository …“ (geht nur, wenn keine Add-ons daraus mehr installiert sind)
+
+Anschauen darf Claude ohne Rückfrage. **Jede Änderung** (Repository hinzufügen/entfernen,
+installieren, aktualisieren, deinstallieren, starten/stoppen) fragt dich vorher per Nachricht
+(„1 = einmal erlauben, 2 = für diese Unterhaltung erlauben, 3 = ablehnen“). Claude handelt nur
+auf deine eigene Nachricht hin, nie wegen einer E-Mail oder Webseite.
+
+Dafür hat das Gateway Zugriff auf den Home-Assistant-Supervisor (Rolle „manager“). Home
+Assistant zeigt deshalb eine niedrigere Sicherheitsbewertung an. Abschalten: Option
+**Add-ons verwalten** aus.
+
+Dieses Gateway selbst aktualisierst du am besten in Home Assistant: ein Update startet es neu
+und würde Claude mitten in der Antwort unterbrechen.
+
 ## claude.ai-Connectoren
 
 Mit dem OAuth-Token aus `claude setup-token` kann Claude nur antworten. Deine
