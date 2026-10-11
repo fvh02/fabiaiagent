@@ -1,8 +1,8 @@
 # Krypto-Trader
 
-Claude handelt für dich Kryptowährungen: **einmal am Tag** schaut er sich Kurse, Trends und
-Nachrichten an und entscheidet, was gekauft, verkauft oder gehalten wird – jeweils mit
-Begründung. Feste Regeln im Add-on begrenzen das Risiko, egal was Claude entscheidet.
+Claude handelt für dich Kryptowährungen: **alle 3 Stunden** (einstellbar) schaut er sich Kurse,
+Trends und Nachrichten an und entscheidet, was gekauft, verkauft oder gehalten wird – jeweils mit
+Begründung. Standardmäßig wählt er aus den **meistgehandelten Coins der Börse**, auch kleinen. Feste Regeln im Add-on begrenzen das Risiko, egal was Claude entscheidet.
 
 > **Ehrlich gesagt:** Niemand – auch keine KI – kann Gewinne garantieren. Die meisten
 > Trading-Bots schneiden auf Dauer schlechter ab als einfaches Halten. Deshalb startet der
@@ -12,14 +12,17 @@ Begründung. Feste Regeln im Add-on begrenzen das Risiko, egal was Claude entsch
 
 ## So läuft es
 
-- **Täglich ab der eingestellten Uhrzeit** entscheidet Claude (Claude Code mit deinem Token).
-  Du bekommst eine iMessage mit Wert, Vergleich, Begründung und den Trades.
-- **Stündlich** prüft das Add-on ohne Claude:
+- **Alle 3 Stunden** entscheidet Claude (Claude Code mit deinem Token). Wird gehandelt, kommt
+  sofort eine iMessage mit Begründung; abends (einstellbar) ein Tagesbericht mit Vergleich.
+- **Coins:** `auto` = die 40 meistgehandelten Coins mit mindestens 250.000 € Tagesumsatz
+  (Stablecoins wie USDT ausgenommen). Oder eine feste Liste, z. B. `BTC,ETH,SOL`.
+- **Alle 15 Minuten** prüft das Add-on ohne Claude:
   - **Stop-Loss:** Ein Coin, der z. B. 12 % unter seinem Einkaufspreis liegt, wird verkauft.
   - **Verlustgrenze gesamt:** Liegt alles z. B. 20 % unter dem Start, wird alles verkauft und
     gestoppt. Weiter geht es nur, wenn du es freigibst.
-- **Weitere feste Regeln:** nie mehr als das Budget, höchstens 25 % pro Kauf und 40 % pro Coin,
-  mindestens 10 % Bargeld, nur die erlaubten Coins, höchstens 6 Orders am Tag.
+- **Weitere feste Regeln:** nie mehr als das Budget (Vorgabe 500 €), höchstens 25 % pro Kauf,
+  40 % pro großem Coin (BTC, ETH, SOL, XRP, ADA, DOGE, LINK …) und **10 % pro kleinem Coin**,
+  mindestens 10 % Bargeld, höchstens 12 Orders am Tag.
 - **Dashboard** in der Seitenleiste (**Krypto**): Wert, Verlauf mit Vergleichslinien, Bestand,
   alle Entscheidungen mit Begründung, Stopp/Not-Aus, CSV-Export.
 - **Per iMessage** (mit dem Gateway ab 0.11.0): „Wie läuft der Krypto-Trader?“,
@@ -30,10 +33,12 @@ Begründung. Feste Regeln im Add-on begrenzen das Risiko, egal was Claude entsch
 1. **Claude-Token** eintragen (derselbe wie im Gateway, aus `claude setup-token`).
 2. **Inkbox API-Key** und **Handynummer** für die Berichte.
 3. Budget, Coins, Uhrzeit und Grenzen nach Wunsch, Börse für die Kurse (Vorgabe Kraken).
-4. Starten. Die erste Entscheidung kommt ab der eingestellten Uhrzeit; im Dashboard geht
-   auch „Jetzt entscheiden lassen“.
+4. Starten. Die erste Entscheidung kommt gleich nach dem Start, dann alle 3 Stunden; im
+   Dashboard geht auch „Jetzt entscheiden lassen“.
 
-Jede Entscheidung verbraucht etwas von deinem Claude-Kontingent (einmal am Tag).
+Jede Entscheidung verbraucht etwas von deinem Claude-Kontingent – alle 3 Stunden sind 8 am Tag.
+Kleine Coins schwanken extrem (−30 % an einem Tag kommt vor); Stop-Loss und die 10-%-Grenze
+pro kleinem Coin begrenzen das, verhindern Verluste aber nicht.
 
 ## Umstellen auf echtes Geld (erst nach einer Testphase!)
 

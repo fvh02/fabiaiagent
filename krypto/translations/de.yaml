@@ -7,10 +7,28 @@ configuration:
     description: Mit so viel Geld handelt Claude – nie mehr. Gilt beim Start eines neuen Kontos (auch beim Wechsel paper → live).
   coins:
     name: Coins
-    description: Erlaubte Kryptowährungen, mit Komma getrennt. Nur die großen sind deutlich weniger riskant.
-  decision_hour:
-    name: Entscheidung um
-    description: Ab dieser Stunde (0–23) entscheidet Claude einmal am Tag.
+    description: auto = die meistgehandelten Coins der Börse (auch kleine). Oder eine feste Liste mit Komma, z. B. BTC,ETH,SOL.
+  auto_top:
+    name: Anzahl Coins (auto)
+    description: Bei „auto“ werden so viele der meistgehandelten Coins betrachtet.
+  min_volume_eur:
+    name: Mindest-Umsatz (EUR/24 h)
+    description: Bei „auto“ nur Coins mit so viel Handelsvolumen – schützt vor kaum gehandelten Coins.
+  decision_every_hours:
+    name: Entscheidung alle … Stunden
+    description: So oft entscheidet Claude (jede Entscheidung verbraucht etwas Claude-Kontingent).
+  check_minutes:
+    name: Sicherheitsprüfung alle … Minuten
+    description: So oft werden Stop-Loss und Verlustgrenze geprüft (ohne Claude).
+  report_hour:
+    name: Tagesbericht um
+    description: Ab dieser Stunde kommt einmal am Tag ein Bericht per iMessage. Trades werden sofort gemeldet.
+  max_small_pct:
+    name: Max. pro kleinem Coin (%)
+    description: Kleine Coins (alles außer den großen wie BTC, ETH, SOL, XRP …) höchstens so viel Prozent des Gesamtwerts.
+  max_orders_day:
+    name: Max. Orders pro Tag
+    description: Schützt vor zu häufigem Hin und Her (Notverkäufe zählen nicht).
   max_trade_pct:
     name: Max. pro Kauf (%)
     description: Ein Kauf höchstens so viel Prozent des Gesamtwerts.

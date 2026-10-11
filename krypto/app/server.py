@@ -26,7 +26,6 @@ log = logging.getLogger("krypto")
 DATA = Path(os.environ.get("KRYPTO_DATA", "/data"))
 STATIC = Path(__file__).parent / "static"
 PORT = int(os.environ.get("KRYPTO_PORT", "8094"))
-CHECK_EVERY = float(os.environ.get("KRYPTO_CHECK_INTERVAL", "3600"))
 INKBOX = os.environ.get("INKBOX_IMESSAGE_URL", "https://inkbox.ai/api/v1/imessage")
 LIVE_PHRASE = "ICH TRAGE DAS RISIKO"
 
@@ -39,19 +38,27 @@ def load_options() -> dict:
 
 
 OPT = load_options()
-COINS = [c.strip().upper() for c in str(OPT.get("coins") or "BTC,ETH,SOL,XRP,ADA,LINK,AVAX,DOT,LTC,DOGE").split(",") if c.strip()]
+COINS_OPT = str(OPT.get("coins") or "auto").strip()
+AUTO = COINS_OPT.lower() == "auto"
+COINS = [] if AUTO else [c.strip().upper() for c in COINS_OPT.split(",") if c.strip()]
+AUTO_TOP = int(OPT.get("auto_top") or 40)
+MIN_VOLUME = float(OPT.get("min_volume_eur") or 250000)
 EXCHANGE = OPT.get("exchange") or "kraken"
 WANT_LIVE = OPT.get("mode") == "live"
 LIVE = WANT_LIVE and str(OPT.get("live_confirm") or "").strip().upper() == LIVE_PHRASE and bool(OPT.get("api_key"))
 MODE = "live" if LIVE else "paper"
 RULES = trader.Rules(
-    budget=float(OPT.get("budget_eur") or 1000),
+    budget=float(OPT.get("budget_eur") or 500),
     max_trade_pct=float(OPT.get("max_trade_pct") or 25), max_position_pct=float(OPT.get("max_position_pct") or 40),
     min_cash_pct=float(OPT.get("min_cash_pct") if OPT.get("min_cash_pct") is not None else 10),
     stop_loss_pct=float(OPT.get("stop_loss_pct") or 12), max_drawdown_pct=float(OPT.get("max_drawdown_pct") or 20),
     fee_pct=float(OPT.get("fee_pct") if OPT.get("fee_pct") is not None else 0.4),
+    max_small_pct=float(OPT.get("max_small_pct") or 10), max_orders_day=int(OPT.get("max_orders_day") or 12),
 )
-DECISION_HOUR = int(OPT.get("decision_hour") if OPT.get("decision_hour") is not None else 9)
+EVERY_HOURS = float(OPT.get("decision_every_hours") or 3)
+REPORT_HOUR = int(OPT.get("report_hour") if OPT.get("report_hour") is not None else 20)
+CHECK_EVERY = float(os.environ.get("KRYPTO_CHECK_INTERVAL") or 60 * float(OPT.get("check_minutes") or 15))
+UNIVERSE_EVERY = 6 * 3600
 MODEL = (OPT.get("claude_model") or "").strip()
 INKBOX_KEY = (OPT.get("inkbox_api_key") or "").strip()
 NOTIFY_TO = (OPT.get("imessage_to") or "").strip()
@@ -109,7 +116,8 @@ def summary() -> dict:
         "basket_hold": round(bench["basket"], 2) if bench.get("basket") else None,
         "holdings": holdings, "decisions": d["decisions"][-15:][::-1], "history": d["history"][-24 * 120:],
         "updated": state["updated"], "busy": state["busy"], "error": state["error"],
-        "decision_hour": DECISION_HOUR, "last_decision": d["last_decision"],
+        "every_hours": EVERY_HOURS, "last_decision": d["last_decision"], "next_decision": next_decision(),
+        "auto": AUTO,
         "rules": RULES.__dict__,
     }
 
@@ -132,34 +140,60 @@ def describe(fill: dict) -> str:
 
 
 # -- the work ------------------------------------------------------------------------
-async def refresh() -> None:
-    if not state.get("tradable"):
-        available = await asyncio.to_thread(market.available, market_coins())
-        missing = [c for c in market_coins() if c not in available]
+async def refresh_universe() -> None:
+    """Which coins may be bought: the configured list, or the most traded coins (auto)."""
+    if AUTO:
+        coins = await asyncio.to_thread(market.universe, AUTO_TOP, MIN_VOLUME)
+    else:
+        coins = await asyncio.to_thread(market.available, COINS)
+        missing = [c for c in COINS if c not in coins]
         if missing:
             log.warning("Nicht auf %s in EUR handelbar, wird ignoriert: %s", EXCHANGE, ", ".join(missing))
-        state["tradable"] = [c for c in COINS if c in available]
-        state["coins_all"] = available
-    snap = await asyncio.to_thread(market.snapshot, state["coins_all"])
-    state["market"] = snap
-    state["prices"] = {c: m["price"] for c, m in snap.items()}
+    if not coins:
+        raise MarketError("Keine handelbaren Coins gefunden")
+    state["tradable"] = coins
+    state["universe_at"] = time.time()
+
+
+def watched() -> list[str]:
+    """Coins whose price we need: tradable ones, everything held, Bitcoin and the benchmark basket."""
+    coins = list(state.get("tradable") or [])
+    if ledger.ready:
+        coins += [c for c in ledger.data["positions"] if c not in coins]
+        coins += [c for c in (ledger.data.get("bench") or {}) if c not in coins]
+    if "BTC" not in coins:
+        coins.append("BTC")
+    return coins
+
+
+async def refresh() -> None:
+    """Current prices (one request) – cheap enough for every risk check."""
+    if not state.get("tradable") or time.time() - state.get("universe_at", 0) > UNIVERSE_EVERY:
+        await refresh_universe()
+    prices = await asyncio.to_thread(market.prices, watched())
+    if not prices:
+        raise MarketError("Keine Kurse erhalten")
+    state["prices"].update(prices)
     state["updated"] = time.time()
     if not ledger.ready or ledger.data.get("mode") != MODE:
-        ledger.fresh(MODE, RULES.budget, state["prices"])
+        # Benchmark basket: the coins tradable at the start.
+        ledger.fresh(MODE, RULES.budget, {c: p for c, p in prices.items() if c in state["tradable"] or c == "BTC"})
         log.info("Neues %s-Konto mit %s", "Echtgeld" if LIVE else "Papier", fmt_eur(RULES.budget))
     value = ledger.value(state["prices"])
     bench = bench_values(state["prices"])
     hist = ledger.data["history"]
-    hist.append({"t": int(time.time()), "v": round(value, 2), "btc": round(bench["btc"] or 0, 2), "basket": round(bench["basket"] or 0, 2)})
+    if not hist or time.time() - hist[-1]["t"] >= 3600 - 60 or len(hist) < 2:
+        hist.append({"t": int(time.time()), "v": round(value, 2), "btc": round(bench["btc"] or 0, 2), "basket": round(bench["basket"] or 0, 2)})
+    else:
+        hist[-1].update(v=round(value, 2), btc=round(bench["btc"] or 0, 2), basket=round(bench["basket"] or 0, 2))
     del hist[:-24 * 180]
     ledger.save()
 
 
-def market_coins() -> list[str]:
-    coins = list(COINS)
-    if "BTC" not in coins:
-        coins.append("BTC")  # benchmark
-    return coins
+def next_decision() -> float | None:
+    if not ledger.ready:
+        return None
+    return ledger.data.get("last_decision_ts", 0) + EVERY_HOURS * 3600
 
 
 async def check_risk(session) -> None:
@@ -180,7 +214,7 @@ async def check_risk(session) -> None:
         if price and p["qty"] and p["qty"] * price <= p["cost"] * (1 - RULES.stop_loss_pct / 100):
             fills, notes = await asyncio.to_thread(trader.execute, ledger, broker, RULES,
                                                    [{"action": "sell", "coin": coin, "fraction": 1, "reason": f"Stop-Loss −{RULES.stop_loss_pct:.0f} %"}],
-                                                   prices, state["tradable"], True)
+                                                   prices, watched(), True)
             if fills:
                 await notify(session, f"⚠️ Stop-Loss: {describe(fills[0])}")
 
@@ -195,15 +229,23 @@ async def decide(session, manual: bool = False) -> dict:
         "holdings": {c: {"qty": round(p["qty"], 8), "value_eur": round(p["qty"] * prices.get(c, 0), 2),
                          "cost_eur": round(p["cost"], 2)} for c, p in d["positions"].items()},
     }
-    trade_market = {c: m for c, m in state["market"].items() if c in state["tradable"]}
-    prompt = brain.build_prompt(trade_market, portfolio, RULES.__dict__, d["decisions"], d["mode"])
     state["busy"] = True
     try:
+        coins = list(state["tradable"]) + [c for c in d["positions"] if c not in state["tradable"]]
+        snapshot = await asyncio.to_thread(market.snapshot, coins)
+        state["market"] = snapshot
+        prompt = brain.build_prompt(snapshot, portfolio, {**RULES.__dict__, "every_hours": EVERY_HOURS,
+                                    "big": sorted(trader.BIG)}, d["decisions"], d["mode"], list(d["positions"]))
         result = await asyncio.to_thread(brain.decide, prompt, MODEL)
     except brain.BrainError as err:
         d["decisions"].append({"date": time.strftime("%Y-%m-%d %H:%M"), "summary": f"Keine Entscheidung: {err}", "fills": [], "notes": []})
         ledger.save()
-        await notify(session, f"⚠️ Krypto-Trader: Claude konnte heute nicht entscheiden ({err}). Es wurde nichts gehandelt.")
+        d["last_decision_ts"] = time.time()
+        ledger.save()
+        await notify(session, f"⚠️ Krypto-Trader: Claude konnte diesmal nicht entscheiden ({err}). Es wurde nichts gehandelt.")
+        return {"error": str(err)}
+    except MarketError as err:
+        d["last_decision_ts"] = time.time() - EVERY_HOURS * 3600 + 900  # try again in 15 minutes
         return {"error": str(err)}
     finally:
         state["busy"] = False
@@ -213,17 +255,36 @@ async def decide(session, manual: bool = False) -> dict:
              "manual": manual}
     d["decisions"].append(entry)
     del d["decisions"][:-200]
-    d["last_decision"] = time.strftime("%Y-%m-%d")
+    d["last_decision"] = time.strftime("%Y-%m-%d %H:%M")
+    d["last_decision_ts"] = time.time()
     ledger.save()
+    if fills:  # every few hours: only write when something was actually traded
+        await notify(session, "\n".join([f"💱 Krypto-Trader: {result['summary']}"] + ["• " + describe(f) for f in fills]
+                                         + [status_line()]))
+    return entry
+
+
+def status_line() -> str:
+    d, prices = ledger.data, state["prices"]
     value = ledger.value(prices)
     bench = bench_values(prices)
-    lines = [f"📊 Krypto-Trader ({'Papier' if d['mode'] == 'paper' else 'ECHT'}): {fmt_eur(value)} ({fmt_pct(pct(value, d['start_value']))})"]
+    line = f"{'Papier' if d['mode'] == 'paper' else 'ECHT'}: {fmt_eur(value)} ({fmt_pct(pct(value, d['start_value']))})"
     if bench.get("btc"):
-        lines.append(f"Zum Vergleich – nur Bitcoin halten: {fmt_pct(pct(bench['btc'], d['start_value']))}")
-    lines.append(result["summary"])
-    lines += [("• " + describe(f)) for f in fills] or ["• Heute keine Trades."]
-    await notify(session, "\n".join(lines))
-    return entry
+        line += f" · nur Bitcoin halten: {fmt_pct(pct(bench['btc'], d['start_value']))}"
+    return line
+
+
+async def daily_report(session) -> None:
+    d = ledger.data
+    today = time.strftime("%Y-%m-%d")
+    if d.get("report_day") == today or datetime.now().hour < REPORT_HOUR:
+        return
+    d["report_day"] = today
+    ledger.save()
+    trades = [f for e in d["decisions"] if e["date"].startswith(today) for f in e.get("fills", [])]
+    holdings = ", ".join(f"{c} {fmt_eur(p['qty'] * state['prices'].get(c, 0))}" for c, p in d["positions"].items()) or "nur Bargeld"
+    await notify(session, f"📊 Krypto-Trader Tagesbericht\n{status_line()}\nHeute {len(trades)} Trades · Bestand: {holdings}"
+                          + (f"\n⏸️ Gestoppt: {d['halt_reason']}" if d["halted"] else ""))
 
 
 async def loop(app: web.Application) -> None:
@@ -233,9 +294,9 @@ async def loop(app: web.Application) -> None:
             async with lock:
                 await refresh()
                 await check_risk(session)
-                now = datetime.now()
-                if now.hour >= DECISION_HOUR and ledger.data["last_decision"] != now.strftime("%Y-%m-%d") and not ledger.data["halted"]:
+                if not ledger.data["halted"] and time.time() >= (next_decision() or 0):
                     await decide(session)
+                await daily_report(session)
             state["error"] = ""
         except (MarketError, trader.TradeError) as err:
             state["error"] = str(err)
@@ -312,7 +373,8 @@ async def on_startup(app: web.Application) -> None:
         broker = trader.PaperBroker(RULES.fee_pct)
         if WANT_LIVE:
             log.warning("mode=live gesetzt, aber live_confirm/API-Key fehlen – es bleibt beim Papertrading")
-    log.info("Krypto-Trader (%s) – %s, Entscheidung täglich ab %s Uhr", MODE, ", ".join(COINS), DECISION_HOUR)
+    log.info("Krypto-Trader (%s) – %s, Entscheidung alle %s Stunden, Prüfung alle %s Minuten", MODE,
+             f"automatisch die {AUTO_TOP} meistgehandelten Coins" if AUTO else ", ".join(COINS), EVERY_HOURS, round(CHECK_EVERY / 60))
     app["loop"] = asyncio.create_task(loop(app))
 
 

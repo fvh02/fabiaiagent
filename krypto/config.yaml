@@ -1,7 +1,7 @@
 name: Krypto-Trader
-version: "0.1.0"
+version: "0.2.0"
 slug: krypto
-description: Claude handelt täglich Kryptowährungen mit deinem Budget – zuerst nur auf Papier, mit festen Verlustgrenzen
+description: Claude handelt alle paar Stunden Kryptowährungen mit deinem Budget – zuerst nur auf Papier, mit festen Verlustgrenzen
 url: https://github.com/fvh02/fabiaiagent
 image: ghcr.io/fvh02/{arch}-ha-krypto
 arch:
@@ -16,12 +16,18 @@ panel_icon: mdi:chart-line
 panel_title: Krypto
 options:
   mode: paper
-  budget_eur: 1000
-  coins: BTC,ETH,SOL,XRP,ADA,LINK,AVAX,DOT,LTC,DOGE
-  decision_hour: 9
+  budget_eur: 500
+  coins: auto
+  auto_top: 40
+  min_volume_eur: 250000
+  decision_every_hours: 3
+  check_minutes: 15
+  report_hour: 20
   max_trade_pct: 25
   max_position_pct: 40
   min_cash_pct: 10
+  max_small_pct: 10
+  max_orders_day: 12
   stop_loss_pct: 12
   max_drawdown_pct: 20
   fee_pct: 0.4
@@ -38,10 +44,16 @@ schema:
   mode: list(paper|live)
   budget_eur: float(10,)
   coins: str
-  decision_hour: int(0,23)
+  auto_top: int(5,100)
+  min_volume_eur: float(0,)
+  decision_every_hours: int(1,24)
+  check_minutes: int(5,60)
+  report_hour: int(0,23)
   max_trade_pct: int(1,100)
   max_position_pct: int(1,100)
   min_cash_pct: int(0,90)
+  max_small_pct: int(1,100)
+  max_orders_day: int(1,50)
   stop_loss_pct: int(1,90)
   max_drawdown_pct: int(1,90)
   fee_pct: float(0,5)

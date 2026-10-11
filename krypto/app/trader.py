@@ -16,7 +16,8 @@ import ccxt
 log = logging.getLogger("trader")
 
 MIN_ORDER_EUR = 10.0
-MAX_ORDERS_PER_DAY = 6
+# Large, liquid coins; everything else counts as a small coin with a lower position limit.
+BIG = {"BTC", "ETH", "SOL", "XRP", "ADA", "DOGE", "TRX", "LINK", "AVAX", "DOT", "LTC", "BCH", "XLM", "TON", "BNB"}
 
 
 class TradeError(Exception):
@@ -32,6 +33,8 @@ class Rules:
     stop_loss_pct: float      # sell a coin that fell this far below its average buy price
     max_drawdown_pct: float   # stop everything when the total fell this far below the start
     fee_pct: float            # paper trading: fee per trade
+    max_small_pct: float = 10.0   # one small coin at most this share of the total value
+    max_orders_day: int = 12
 
 
 # -- ledger ------------------------------------------------------------------------
@@ -201,12 +204,13 @@ def execute(ledger: Ledger, broker, rules: Rules, orders: list[dict], prices: di
     for order in sells + buys:
         coin = str(order.get("coin", "")).upper()
         reason = str(order.get("reason", ""))[:300]
-        if coin not in allowed or coin not in prices:
+        held_coin = coin in data["positions"]
+        if coin not in prices or (order["action"] == "buy" and coin not in allowed) or (order["action"] == "sell" and not held_coin and coin not in allowed):
             notes.append(f"{coin}: nicht erlaubt oder kein Kurs")
             continue
         # Stop-loss and emergency sells never count towards (or wait for) the daily limit.
-        if not emergency and counter["count"] >= MAX_ORDERS_PER_DAY:
-            notes.append(f"{coin}: höchstens {MAX_ORDERS_PER_DAY} Orders pro Tag")
+        if not emergency and counter["count"] >= rules.max_orders_day:
+            notes.append(f"{coin}: höchstens {rules.max_orders_day} Orders pro Tag")
             continue
         price = prices[coin]
         try:
@@ -229,7 +233,8 @@ def execute(ledger: Ledger, broker, rules: Rules, orders: list[dict], prices: di
                 if exchange_cash is not None:
                     cash_free = min(cash_free, exchange_cash * 0.995)
                 held_value = data["positions"].get(coin, {}).get("qty", 0.0) * price
-                limit = min(cash_free, total * rules.max_trade_pct / 100, total * rules.max_position_pct / 100 - held_value)
+                position_pct = rules.max_position_pct if coin in BIG else min(rules.max_position_pct, rules.max_small_pct)
+                limit = min(cash_free, total * rules.max_trade_pct / 100, total * position_pct / 100 - held_value)
                 if eur > limit:
                     notes.append(f"{coin}: Kauf von {eur:.0f} € auf {max(0, limit):.0f} € begrenzt (Regeln)")
                     eur = limit

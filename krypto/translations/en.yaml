@@ -7,10 +7,28 @@ configuration:
     description: Claude trades with this much money – never more. Applies when a new account starts (also when switching paper → live).
   coins:
     name: Coins
-    description: Allowed cryptocurrencies, comma separated.
-  decision_hour:
-    name: Decision hour
-    description: From this hour (0–23) Claude decides once a day.
+    description: auto = the most traded coins of the exchange (small ones too). Or a fixed comma list, e.g. BTC,ETH,SOL.
+  auto_top:
+    name: Number of coins (auto)
+    description: With "auto", this many of the most traded coins are considered.
+  min_volume_eur:
+    name: Minimum volume (EUR/24 h)
+    description: With "auto", only coins with this much trading volume.
+  decision_every_hours:
+    name: Decide every … hours
+    description: How often Claude decides (each decision uses some Claude quota).
+  check_minutes:
+    name: Safety check every … minutes
+    description: How often stop-loss and the loss limit are checked (without Claude).
+  report_hour:
+    name: Daily report at
+    description: From this hour a daily report comes by iMessage. Trades are reported right away.
+  max_small_pct:
+    name: Max per small coin (%)
+    description: Small coins (everything except the big ones like BTC, ETH, SOL, XRP …) at most this share of the total value.
+  max_orders_day:
+    name: Max orders per day
+    description: Prevents trading back and forth (emergency sells don't count).
   max_trade_pct:
     name: Max per buy (%)
     description: One buy at most this share of the total value.

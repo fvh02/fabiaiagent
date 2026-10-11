@@ -297,7 +297,7 @@ if [ -n "$KRYPTO_URL_OPT" ]; then
   for sub in status verlauf stopp notaus --help; do AUTO_ALLOWED="$AUTO_ALLOWED,Bash(krypto $sub:*)"; done
   set_block krypto "## Crypto trader
 
-The Krypto-Trader add-on trades crypto for the person (paper trading unless they switched it to real money in Home Assistant). Claude inside the add-on decides once a day on its own; hard limits (budget, stop-loss, total loss limit) are enforced by the add-on. Use the \`krypto\` command; it prints JSON.
+The Krypto-Trader add-on trades crypto for the person (paper trading unless they switched it to real money in Home Assistant). Claude inside the add-on decides every few hours on its own; hard limits (budget, stop-loss, total loss limit) are enforced by the add-on. Use the \`krypto\` command; it prints JSON.
 
 - \`krypto status\` – value, profit/loss, comparison with just holding Bitcoin, holdings
 - \`krypto verlauf [N]\` – the last decisions with reasons

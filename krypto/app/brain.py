@@ -35,27 +35,31 @@ class BrainError(Exception):
     pass
 
 
-def build_prompt(market: dict, portfolio: dict, rules: dict, recent: list[dict], mode: str) -> str:
-    lines = ["coin | price EUR | 1d% | 7d% | 30d% | 90d% | vs SMA20% | vs SMA50% | RSI14 | vol/yr% | vs 30d high%"]
+def build_prompt(market: dict, portfolio: dict, rules: dict, recent: list[dict], mode: str, held: list[str]) -> str:
+    lines = ["coin | price EUR | 3h% | 24h% | RSI14 1h | 7d% | 30d% | 90d% | vs SMA20% | vs SMA50% | RSI14 1d | vol/yr% | vs 30d high%"]
     for coin, m in market.items():
-        lines.append(f"{coin} | {m['price']} | {m['chg_1d']} | {m['chg_7d']} | {m['chg_30d']} | {m['chg_90d']} | "
-                     f"{m['vs_sma20']} | {m['vs_sma50']} | {m['rsi14']} | {m['vol_annual']} | {m['below_30d_high']}")
-    history = "\n".join(f"- {d['date']}: {d['summary']}" for d in recent[-5:]) or "- (first day)"
+        tag = "" if coin in rules["big"] else " (small)"
+        lines.append(f"{coin}{tag} | {m['price']} | {m.get('chg_3h', '?')} | {m.get('chg_24h', '?')} | {m.get('rsi14_1h', '?')} | "
+                     f"{m['chg_7d']} | {m['chg_30d']} | {m['chg_90d']} | {m['vs_sma20']} | {m['vs_sma50']} | {m['rsi14']} | "
+                     f"{m['vol_annual']} | {m['below_30d_high']}")
+    history = "\n".join(f"- {d['date']}: {d['summary']}" for d in recent[-8:]) or "- (first decision)"
     return f"""You manage a small crypto portfolio ({'PAPER TRADING – simulated money' if mode == 'paper' else 'REAL MONEY'}) in EUR.
-Goal: grow the portfolio over weeks and months while keeping losses small. Capital preservation comes first;
-doing nothing is a valid and often the best decision. Every trade costs about {rules['fee_pct']}% fees plus spread,
-so only trade when you have a clear reason. Avoid overtrading and chasing pumps.
+You are asked every {rules['every_hours']:g} hours. Goal: grow the portfolio while keeping losses small. Capital
+preservation comes first; doing nothing is a valid and often the best decision. Every trade costs about
+{rules['fee_pct']}% fees plus spread, so a round trip needs more than {2 * rules['fee_pct'] + 0.2:.1f}% move just to break even –
+do not trade back and forth without a clear edge. Avoid chasing pumps; small coins can drop 30% in hours.
 
 Hard rules enforced by the system (orders beyond them are cut down or refused):
-- Only these coins: {', '.join(market)}
-- One buy at most {rules['max_trade_pct']}% of the total value, one coin at most {rules['max_position_pct']}% of it
-- Always keep at least {rules['min_cash_pct']}% in cash; minimum order 10 EUR; at most 6 orders per day
-- Automatic stop-loss: a coin is sold when it is {rules['stop_loss_pct']}% below its average buy price
-- Everything stops when the portfolio is {rules['max_drawdown_pct']}% below its start value
+- Buy only coins from the table (the most traded coins on the exchange); sell only what you hold
+- One buy at most {rules['max_trade_pct']:g}% of the total value; one large coin at most {rules['max_position_pct']:g}%,
+  one coin marked (small) at most {rules['max_small_pct']:g}% of the total value
+- Always keep at least {rules['min_cash_pct']:g}% in cash; minimum order 10 EUR; at most {rules['max_orders_day']} orders per day
+- Automatic stop-loss: a coin is sold when it is {rules['stop_loss_pct']:g}% below its average buy price (checked every few minutes)
+- Everything stops when the portfolio is {rules['max_drawdown_pct']:g}% below its start value
 
-You may use web search for recent important news (regulation, hacks, ETF flows, macro) – keep it short.
+You may use web search for important recent news (regulation, hacks, listings, ETF flows, macro) – keep it short.
 
-Market today (daily candles):
+Market now (3h/24h/RSI 1h from hourly candles, the rest from daily candles):
 {chr(10).join(lines)}
 
 Portfolio:
@@ -64,7 +68,7 @@ Portfolio:
 Your recent decisions:
 {history}
 
-Answer only with the JSON object: a German summary and the orders for today (an empty list is fine).
+Answer only with the JSON object: a German summary and the orders for now (an empty list is fine).
 Buys: "eur" amount. Sells: "fraction" of the holding (1 = everything). Give each order a short German reason."""
 
 
