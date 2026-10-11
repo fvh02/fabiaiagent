@@ -6,8 +6,8 @@ Usage:
   downloader add URL [URL ...]
   downloader remove ID
 
-Reads DOWNLOADER_URL (e.g. http://4b225c51-downloader:8100) and
-DOWNLOADER_TOKEN (the add-on's api_token). Prints JSON.
+Reads DOWNLOADER_URL (e.g. http://4b225c51-downloader:8099, the add-on on
+Home Assistant's internal network). Prints JSON.
 """
 
 import json
@@ -24,12 +24,10 @@ def fail(message: str) -> None:
 
 def call(method: str, path: str, body: dict | None = None):
     base = os.environ.get("DOWNLOADER_URL", "").strip().rstrip("/")
-    token = os.environ.get("DOWNLOADER_TOKEN", "").strip()
-    if not base or not token:
-        fail("Downloader ist nicht eingerichtet (downloader_url/downloader_token im Gateway-Add-on).")
+    if not base:
+        fail("Downloader ist nicht eingerichtet (downloader_url im Gateway-Add-on).")
     data = json.dumps(body).encode() if body is not None else None
     request = urllib.request.Request(base + path, data=data, method=method)
-    request.add_header("Authorization", f"Bearer {token}")
     if data is not None:
         request.add_header("Content-Type", "application/json")
     try:

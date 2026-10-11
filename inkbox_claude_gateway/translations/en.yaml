@@ -40,7 +40,4 @@ configuration:
     description: Optional. Leave empty for the default model.
   downloader_url:
     name: Downloader address
-    description: Internal address of the Downloader add-on with port 8100. The Downloader shows its hostname on its Info tab.
-  downloader_token:
-    name: Downloader API token
-    description: The api_token from the Downloader add-on configuration. Leave empty if Claude should not control downloads.
+    description: Internal address of the Downloader add-on with port 8099. The Downloader shows its hostname on its Info tab. Leave empty if Claude should not control downloads.

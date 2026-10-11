@@ -22,7 +22,6 @@ ICLOUD_AI_CALENDAR_OPT="$(opt icloud_ai_calendar)"
 VOICE_TRANSCRIPTION="$(opt voice_transcription)"
 CLAUDE_AI_LOGIN="$(opt claude_ai_login)"
 DOWNLOADER_URL_OPT="$(opt downloader_url)"
-DOWNLOADER_TOKEN_OPT="$(opt downloader_token)"
 
 die() { echo "[inkbox] FEHLER: $*" >&2; exit 1; }
 
@@ -146,8 +145,12 @@ else
   set_block voice-messages
   echo "[inkbox] Sprachnachrichten: aus"
 fi
-if [ -n "$DOWNLOADER_URL_OPT" ] && [ -n "$DOWNLOADER_TOKEN_OPT" ]; then
-  export DOWNLOADER_URL="$DOWNLOADER_URL_OPT" DOWNLOADER_TOKEN="$DOWNLOADER_TOKEN_OPT"
+# Downloader 1.3.0 dropped the token port 8100; the add-on now listens on 8099 only.
+case "$DOWNLOADER_URL_OPT" in
+  *:8100|*:8100/) DOWNLOADER_URL_OPT="${DOWNLOADER_URL_OPT%/}"; DOWNLOADER_URL_OPT="${DOWNLOADER_URL_OPT%:8100}:8099" ;;
+esac
+if [ -n "$DOWNLOADER_URL_OPT" ]; then
+  export DOWNLOADER_URL="$DOWNLOADER_URL_OPT"
   AUTO_ALLOWED="$AUTO_ALLOWED,Bash(downloader:*)"
   set_block downloader "## Downloads
 

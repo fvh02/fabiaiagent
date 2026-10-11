@@ -70,15 +70,12 @@ Claude kann das [Downloader-Add-on](https://github.com/fvh02/HA-downloader-Addon
 per Nachricht den Status abfragen („Wie weit sind meine Downloads?“) oder einen Link
 schicken, der dann heruntergeladen wird.
 
-1. Im Downloader-Add-on unter **Konfiguration** einen `api_token` setzen (ein selbst
-   ausgedachtes, langes Passwort). Eine Portfreigabe ist nicht nötig, beide Add-ons
-   sprechen im internen Netz von Home Assistant miteinander.
-2. Hier im Gateway eintragen:
-   - **Downloader-Adresse:** `http://<hostname>:8100`. Den Hostnamen zeigt der Downloader
-     im Reiter **Info** (z. B. `4b225c51-downloader`). Die Vorgabe passt, wenn du den
-     Downloader über `https://github.com/fvh02/HA-downloader-Addon` installiert hast.
-   - **Downloader-API-Token:** derselbe Wert wie der `api_token` im Downloader.
-3. Speichern und neu starten. Im Protokoll steht `[inkbox] Downloader: aktiv (...)`.
+1. Hier im Gateway unter **Konfiguration** die **Downloader-Adresse** prüfen:
+   `http://<hostname>:8099`. Den Hostnamen zeigt der Downloader im Reiter **Info**
+   (z. B. `4b225c51-downloader`). Die Vorgabe passt, wenn du den Downloader über
+   `https://github.com/fvh02/HA-downloader-Addon` installiert hast. Eine Portfreigabe
+   oder ein Token ist nicht nötig, beide Add-ons sprechen im internen Netz miteinander.
+2. Speichern und neu starten. Im Protokoll steht `[inkbox] Downloader: aktiv (...)`.
 
 Das `downloader`-Werkzeug darf Claude ohne Rückfrage benutzen. Links fügt Claude nur
 hinzu, wenn du sie selbst schickst, nicht aus E-Mails oder weitergeleiteten Nachrichten.
