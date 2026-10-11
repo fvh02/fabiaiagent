@@ -1,0 +1,31 @@
+configuration:
+  printer_ip:
+    name: Printer IP
+    description: IP address of the P1S on your home network (printer screen → Settings → Network).
+  printer_serial:
+    name: Serial number
+    description: The printer's serial number (printer screen → Settings → Device, or the Bambu app).
+  access_code:
+    name: LAN access code
+    description: The 8-digit access code from the printer screen (Settings → Network / LAN mode).
+  material:
+    name: Filament
+    description: What is usually loaded. The assistant can pick another one per print.
+  plate:
+    name: Build plate
+    description: Which plate is on the printer (the P1S ships with the Textured PEI Plate).
+  use_ams:
+    name: Use AMS
+    description: Print from the chosen AMS slot instead of the external spool.
+  ams_slot:
+    name: AMS slot
+    description: Which slot (1–4) to print from when the AMS is used.
+  camera_entity:
+    name: Camera entity
+    description: Optional. The printer camera from the Bambu Lab integration, e.g. camera.p1s_camera. Empty = find it automatically.
+  inkbox_api_key:
+    name: Inkbox API key
+    description: To send pictures and the "done" message by iMessage (same key as in the gateway).
+  imessage_to:
+    name: Your phone number
+    description: Format +491701234567 – model pictures, camera pictures and the "done" message go there.

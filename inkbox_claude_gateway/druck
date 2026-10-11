@@ -1,0 +1,153 @@
+#!/usr/bin/env python3
+"""3D printing on the Bambu Lab P1S through the 3D-Druck add-on. Prints JSON.
+
+  druck suche BEGRIFF [--anzahl N]   find models on Printables; the pictures are sent to the
+                                      person by iMessage, numbered 1..N
+  druck bild NR                       send the picture of result NR again
+  druck vorbereiten NR|ID|LINK [--datei NAME ...] [--material PLA|PETG|ABS|TPU]
+                    [--qualitaet fein|standard|schnell] [--stuetzen] [--drehen]
+                                      download and slice; tells print time and filament
+  druck starten [AUFTRAG]             start the last prepared model (or the given job id)
+  druck status                        what the printer is doing
+  druck kamera                        send a camera picture of the printer by iMessage
+  druck pause | weiter | stopp
+
+NR refers to the numbers of the last `druck suche`. Needs DRUCK_URL.
+"""
+
+import json
+import os
+import sys
+import urllib.error
+import urllib.parse
+import urllib.request
+from pathlib import Path
+
+BASE = os.environ.get("DRUCK_URL", "").rstrip("/")
+STATE = Path(os.environ.get("DRUCK_STATE_DIR", "/data/druck"))
+
+
+def out(data) -> None:
+    print(json.dumps(data, ensure_ascii=False, indent=1))
+
+
+def fail(message: str) -> None:
+    out({"error": message})
+    sys.exit(1)
+
+
+def call(method: str, path: str, body: dict | None = None, timeout: int = 60):
+    if not BASE:
+        fail("Das 3D-Druck-Add-on ist nicht verbunden (Option druck_url im Gateway).")
+    data = json.dumps(body).encode() if body is not None else None
+    request = urllib.request.Request(BASE + path, data=data, method=method,
+                                     headers={"Content-Type": "application/json"} if data else {})
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            return json.loads(response.read() or b"null")
+    except urllib.error.HTTPError as err:
+        text = err.read().decode(errors="replace")
+        try:
+            text = json.loads(text).get("error") or text
+        except ValueError:
+            pass
+        fail(text.strip() or f"Fehler {err.code}")
+    except (urllib.error.URLError, OSError) as err:
+        fail(f"3D-Druck-Add-on nicht erreichbar ({BASE}): {getattr(err, 'reason', err)}")
+
+
+def remember(name: str, data) -> None:
+    STATE.mkdir(parents=True, exist_ok=True)
+    (STATE / f"{name}.json").write_text(json.dumps(data, ensure_ascii=False))
+
+
+def recall(name: str):
+    try:
+        return json.loads((STATE / f"{name}.json").read_text())
+    except (OSError, ValueError):
+        return None
+
+
+def flag(args: list[str], *names: str) -> bool:
+    found = any(n in args for n in names)
+    for n in names:
+        while n in args:
+            args.remove(n)
+    return found
+
+
+def option(args: list[str], name: str, many: bool = False):
+    values = []
+    while name in args:
+        i = args.index(name)
+        if i + 1 >= len(args):
+            fail(f"{name} braucht einen Wert")
+        values.append(args[i + 1])
+        del args[i:i + 2]
+    return values if many else (values[-1] if values else None)
+
+
+def pick(ref: str) -> dict:
+    """A search result by its number, or the reference itself (Printables id or link)."""
+    results = recall("suche") or []
+    if ref.isdigit() and int(ref) <= 20:
+        # Small numbers are always result numbers, never Printables ids (those are much larger).
+        if 1 <= int(ref) <= len(results):
+            return results[int(ref) - 1]
+        fail(f"Treffer Nr. {ref} gibt es nicht – die letzte Suche hatte {len(results)} Treffer")
+    return {"id": ref, "name": None}
+
+
+def main(argv: list[str]) -> None:
+    if not argv or argv[0] in ("-h", "--help", "hilfe"):
+        print(__doc__.strip())
+        return
+    cmd, args = argv[0].lower(), argv[1:]
+
+    if cmd in ("suche", "suchen", "search"):
+        limit = option(args, "--anzahl") or "3"
+        query = " ".join(args).strip()
+        if not query:
+            fail("Bitte angeben, wonach gesucht werden soll")
+        data = call("GET", "/api/search?" + urllib.parse.urlencode({"q": query, "limit": limit, "send": "1"}), timeout=120)
+        results = data.get("results") or []
+        remember("suche", results)
+        out({"query": query, "images_sent": data.get("images_sent", 0),
+             "results": [{"nr": n, **r} for n, r in enumerate(results, 1)]})
+    elif cmd == "bild" and args:
+        result = pick(args[0])
+        if not result.get("image"):
+            fail("Zu dieser Nummer gibt es kein Bild – erst `druck suche` ausführen")
+        out(call("POST", "/api/send", {"image_url": result["image"], "text": result.get("name") or ""}))
+    elif cmd in ("vorbereiten", "slicen", "prepare") and args:
+        body = {
+            "files": option(args, "--datei", many=True),
+            "material": option(args, "--material"),
+            "quality": option(args, "--qualitaet") or option(args, "--qualität"),
+            "supports": flag(args, "--stuetzen", "--stützen"),
+            "orient": flag(args, "--drehen"),
+        }
+        ref = " ".join(args).strip()
+        result = pick(ref)
+        model = result.get("url") or result["id"]
+        job = call("POST", "/api/prepare", {"model": model, **{k: v for k, v in body.items() if v}}, timeout=1200)
+        remember("auftrag", job)
+        out(job)
+    elif cmd in ("starten", "drucken", "start"):
+        job_id = args[0] if args else (recall("auftrag") or {}).get("id")
+        if not job_id:
+            fail("Es ist noch nichts vorbereitet – erst `druck vorbereiten`")
+        out(call("POST", "/api/print", {"job": job_id}, timeout=300))
+    elif cmd == "status":
+        out(call("GET", "/api/status", timeout=30))
+    elif cmd in ("kamera", "foto", "bild") and not args:
+        out(call("POST", "/api/send", {"camera": True, "text": "📷 Drucker"}, timeout=60))
+    elif cmd in ("pause", "pausieren", "weiter", "fortsetzen", "stopp", "stop", "abbrechen"):
+        name = {"pausieren": "pause", "fortsetzen": "weiter", "stop": "stopp", "abbrechen": "stopp"}.get(cmd, cmd)
+        out(call("POST", "/api/control", {"cmd": name}, timeout=30))
+    else:
+        fail("Unbekannter Aufruf. Siehe: druck --help")
+
+
+if __name__ == "__main__":
+    main(sys.argv[1:])

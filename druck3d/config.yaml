@@ -1,0 +1,34 @@
+name: 3D-Druck
+version: "0.1.0"
+slug: druck3d
+description: Modelle auf Printables finden, für den Bambu Lab P1S slicen und drucken – per iMessage über deinen Assistenten
+url: https://github.com/fvh02/fabiaiagent
+image: ghcr.io/fvh02/{arch}-ha-druck3d
+arch:
+  - amd64
+init: false
+startup: application
+boot: auto
+homeassistant_api: true
+options:
+  printer_ip: ""
+  printer_serial: ""
+  access_code: ""
+  material: PLA
+  plate: Textured PEI Plate
+  use_ams: false
+  ams_slot: 1
+  camera_entity: ""
+  inkbox_api_key: ""
+  imessage_to: ""
+schema:
+  printer_ip: str?
+  printer_serial: str?
+  access_code: password?
+  material: list(PLA|PETG|ABS|ASA|TPU)
+  plate: list(Textured PEI Plate|Cool Plate|Engineering Plate|High Temp Plate)
+  use_ams: bool
+  ams_slot: int(1,4)
+  camera_entity: str?
+  inkbox_api_key: password?
+  imessage_to: match(^(\+[1-9][0-9]{6,14})?$)?

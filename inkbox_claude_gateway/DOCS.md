@@ -133,6 +133,13 @@ Einrichtung (einmalig, kostenlos):
 Preisalarme prüft das Gateway alle 30 Minuten. Neue passende Angebote kommen per iMessage,
 jedes nur einmal. „Welche Preisalarme habe ich?“ und „Lösch den PS5-Alarm“ gehen auch.
 
+## 3D-Druck
+
+Mit dem Add-on **3D-Druck** aus diesem Repository sucht Claude Modelle auf Printables, schickt
+dir Bilder, slict für deinen Bambu Lab P1S und druckt nach deinem „Ja“. Status, Kamerabild,
+Pause und Stopp gehen auch per Nachricht. Einrichtung siehe Doku des 3D-Druck-Add-ons; hier im
+Gateway ist die Adresse (`druck_url`) schon voreingestellt.
+
 ## claude.ai-Connectoren
 
 Mit dem OAuth-Token aus `claude setup-token` kann Claude nur antworten. Deine

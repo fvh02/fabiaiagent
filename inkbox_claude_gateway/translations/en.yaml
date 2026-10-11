@@ -56,3 +56,6 @@ configuration:
   ebay_notify_to:
     name: Price alerts to
     description: Your phone number as +49…, which receives new matches of your price alerts by iMessage. Empty = no price alerts.
+  druck_url:
+    name: 3D printing address
+    description: Internal address of the 3D printing add-on. The default fits when it is installed from this repository. Leave empty if Claude should not print.

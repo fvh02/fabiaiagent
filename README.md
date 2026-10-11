@@ -13,5 +13,8 @@ Oder manuell: *Einstellungen → Add-ons → Add-on Store → ⋮ → Repositori
 Installation, Einrichtung und Fehlersuche:
 [`inkbox_claude_gateway/DOCS.md`](inkbox_claude_gateway/DOCS.md).
 
+Außerdem im Repository: **3D-Druck** – Modelle per iMessage finden, slicen und auf dem
+Bambu Lab P1S drucken ([`druck3d/DOCS.md`](druck3d/DOCS.md)).
+
 Zugangsdaten gehören ausschließlich in den Konfigurations-Tab des Add-ons, nie in
 dieses Repository.

@@ -1,0 +1,31 @@
+configuration:
+  printer_ip:
+    name: Drucker-IP
+    description: IP-Adresse des P1S im Heimnetz (Drucker-Display → Einstellungen → Netzwerk), z. B. 192.168.178.50.
+  printer_serial:
+    name: Seriennummer
+    description: Seriennummer des Druckers (Drucker-Display → Einstellungen → Gerät, oder Bambu-App).
+  access_code:
+    name: LAN-Zugangscode
+    description: Der 8-stellige Zugangscode vom Drucker-Display (Einstellungen → Netzwerk / LAN-Modus).
+  material:
+    name: Filament
+    description: Was meistens im Drucker ist. Der Assistent kann pro Druck ein anderes wählen.
+  plate:
+    name: Druckplatte
+    description: Welche Platte auf dem Drucker liegt (ab Werk beim P1S die Textured PEI Plate).
+  use_ams:
+    name: AMS benutzen
+    description: Mit AMS aus dem gewählten Fach drucken, sonst von der externen Spule.
+  ams_slot:
+    name: AMS-Fach
+    description: Aus welchem Fach (1–4) gedruckt wird, wenn das AMS benutzt wird.
+  camera_entity:
+    name: Kamera-Entität
+    description: Optional. Kamera des Druckers aus der Bambu-Lab-Integration, z. B. camera.p1s_kamera. Leer = automatisch suchen.
+  inkbox_api_key:
+    name: Inkbox API-Key
+    description: Zum Verschicken von Bildern und der Fertig-Meldung per iMessage (derselbe Key wie im Gateway).
+  imessage_to:
+    name: Deine Handynummer
+    description: Im Format +491701234567 – dorthin gehen Modellbilder, Kamerabilder und die Fertig-Meldung.

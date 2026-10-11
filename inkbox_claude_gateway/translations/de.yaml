@@ -56,3 +56,6 @@ configuration:
   ebay_notify_to:
     name: Preisalarm an
     description: Deine Telefonnummer im Format +49…, an die neue Treffer deiner Preisalarme per iMessage gehen. Leer = keine Preisalarme.
+  druck_url:
+    name: 3D-Druck-Adresse
+    description: Interne Adresse des 3D-Druck-Add-ons. Die Vorgabe passt, wenn es aus diesem Repository installiert ist. Leer lassen, wenn Claude nicht drucken soll.
