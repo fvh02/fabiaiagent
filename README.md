@@ -13,8 +13,12 @@ Oder manuell: *Einstellungen → Add-ons → Add-on Store → ⋮ → Repositori
 Installation, Einrichtung und Fehlersuche:
 [`inkbox_claude_gateway/DOCS.md`](inkbox_claude_gateway/DOCS.md).
 
-Außerdem im Repository: **3D-Druck** – Modelle per iMessage finden, slicen und auf dem
+Außerdem im Repository:
+
+- **3D-Druck** – Modelle per iMessage finden, slicen und auf dem
 Bambu Lab P1S drucken ([`druck3d/DOCS.md`](druck3d/DOCS.md)).
+- **Krypto-Trader** – Claude handelt täglich Kryptowährungen mit festem Budget und
+  Verlustgrenzen, zuerst als Papertrading ([`krypto/DOCS.md`](krypto/DOCS.md)).
 
 Zugangsdaten gehören ausschließlich in den Konfigurations-Tab des Add-ons, nie in
 dieses Repository.

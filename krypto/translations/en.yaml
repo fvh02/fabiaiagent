@@ -1,0 +1,58 @@
+configuration:
+  mode:
+    name: Mode
+    description: paper = paper trading with real prices and simulated money. live = real money (only with API key and confirmation below).
+  budget_eur:
+    name: Budget (EUR)
+    description: Claude trades with this much money – never more. Applies when a new account starts (also when switching paper → live).
+  coins:
+    name: Coins
+    description: Allowed cryptocurrencies, comma separated.
+  decision_hour:
+    name: Decision hour
+    description: From this hour (0–23) Claude decides once a day.
+  max_trade_pct:
+    name: Max per buy (%)
+    description: One buy at most this share of the total value.
+  max_position_pct:
+    name: Max per coin (%)
+    description: One coin at most this share of the total value.
+  min_cash_pct:
+    name: Cash reserve (%)
+    description: This share always stays in euros.
+  stop_loss_pct:
+    name: Stop-loss (%)
+    description: A coin is sold automatically when it is this far below its buy price (checked hourly).
+  max_drawdown_pct:
+    name: Total loss limit (%)
+    description: When the total value is this far below the start, everything is sold and trading stops.
+  fee_pct:
+    name: Paper trading fee (%)
+    description: Simulated fee per trade.
+  exchange:
+    name: Exchange
+    description: Prices come from this exchange; in live mode trades go there.
+  api_key:
+    name: API key (live only)
+    description: Exchange API key – trade permission ONLY, NO withdrawals. Ideally for a separate sub-account/portfolio.
+  api_secret:
+    name: API secret (live only)
+    description: The matching secret.
+  api_password:
+    name: API passphrase
+    description: Only if the exchange requires one.
+  live_confirm:
+    name: Real money confirmation
+    description: For real trading enter exactly ICH TRAGE DAS RISIKO. Otherwise it stays paper trading.
+  claude_oauth_token:
+    name: Claude token
+    description: Same token as in the gateway (from "claude setup-token").
+  claude_model:
+    name: Claude model
+    description: Optional, empty = default.
+  inkbox_api_key:
+    name: Inkbox API key
+    description: For the daily report and warnings by iMessage.
+  imessage_to:
+    name: Your phone number
+    description: Format +491701234567.

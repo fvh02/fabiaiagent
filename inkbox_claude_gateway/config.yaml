@@ -1,5 +1,5 @@
 name: Inkbox Claude Gateway
-version: "0.10.0"
+version: "0.11.0"
 slug: inkbox_claude_gateway
 description: Weckt Claude Code bei eingehenden E-Mails und iMessages über Inkbox.
 url: https://github.com/fvh02/fabiaiagent
@@ -37,6 +37,7 @@ options:
   ebay_zip: ""
   ebay_notify_to: ""
   druck_url: http://afcf546d-druck3d:8095
+  krypto_url: http://afcf546d-krypto:8094
 schema:
   inkbox_api_key: password
   inkbox_identity: str
@@ -58,3 +59,4 @@ schema:
   ebay_zip: str?
   ebay_notify_to: str?
   druck_url: str?
+  krypto_url: str?

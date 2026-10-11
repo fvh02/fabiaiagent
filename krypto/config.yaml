@@ -1,0 +1,56 @@
+name: Krypto-Trader
+version: "0.1.0"
+slug: krypto
+description: Claude handelt täglich Kryptowährungen mit deinem Budget – zuerst nur auf Papier, mit festen Verlustgrenzen
+url: https://github.com/fvh02/fabiaiagent
+image: ghcr.io/fvh02/{arch}-ha-krypto
+arch:
+  - amd64
+  - aarch64
+init: false
+startup: application
+boot: auto
+ingress: true
+ingress_port: 8094
+panel_icon: mdi:chart-line
+panel_title: Krypto
+options:
+  mode: paper
+  budget_eur: 1000
+  coins: BTC,ETH,SOL,XRP,ADA,LINK,AVAX,DOT,LTC,DOGE
+  decision_hour: 9
+  max_trade_pct: 25
+  max_position_pct: 40
+  min_cash_pct: 10
+  stop_loss_pct: 12
+  max_drawdown_pct: 20
+  fee_pct: 0.4
+  exchange: kraken
+  api_key: ""
+  api_secret: ""
+  api_password: ""
+  live_confirm: ""
+  claude_oauth_token: ""
+  claude_model: ""
+  inkbox_api_key: ""
+  imessage_to: ""
+schema:
+  mode: list(paper|live)
+  budget_eur: float(10,)
+  coins: str
+  decision_hour: int(0,23)
+  max_trade_pct: int(1,100)
+  max_position_pct: int(1,100)
+  min_cash_pct: int(0,90)
+  stop_loss_pct: int(1,90)
+  max_drawdown_pct: int(1,90)
+  fee_pct: float(0,5)
+  exchange: list(kraken|coinbase|binance|bitvavo)
+  api_key: password?
+  api_secret: password?
+  api_password: password?
+  live_confirm: str?
+  claude_oauth_token: password?
+  claude_model: str?
+  inkbox_api_key: password?
+  imessage_to: match(^(\+[1-9][0-9]{6,14})?$)?

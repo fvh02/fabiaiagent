@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="de" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Krypto-Trader</title>
+  <style>
+    :root { --bg1: #0b0a1f; --bg2: #120c24; --glass: rgba(255,255,255,.07); --glass2: rgba(255,255,255,.11); --line: rgba(255,255,255,.16);
+      --text: #f1f0ff; --muted: #a7a3cf; --a: #a78bfa; --b: #f472b6; --ok: #34d399; --bad: #fb7185; --warn: #fbbf24; }
+    @media (prefers-color-scheme: light) { :root { --bg1: #eef2ff; --bg2: #fdf2f8; --glass: rgba(255,255,255,.6); --glass2: rgba(255,255,255,.8);
+      --line: rgba(255,255,255,.85); --text: #1e1b3a; --muted: #5f5c80; --a: #7c3aed; --b: #ec4899; --ok: #059669; --bad: #e11d48; --warn: #b45309; } }
+    * { box-sizing: border-box; }
+    [hidden] { display: none !important; }
+    body { margin: 0; min-height: 100vh; font-family: Inter, system-ui, -apple-system, "Segoe UI", sans-serif; color: var(--text);
+      background: radial-gradient(60vmax 60vmax at 0 0, rgba(99,102,241,.35), transparent), radial-gradient(50vmax 50vmax at 100% 100%, rgba(236,72,153,.28), transparent),
+      linear-gradient(135deg, var(--bg1), var(--bg2)); }
+    main { max-width: 980px; margin: 0 auto; padding: 18px 14px 40px; display: grid; gap: 14px; }
+    .glass { background: var(--glass); border: 1px solid var(--line); border-radius: 22px; backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+      box-shadow: 0 8px 30px rgba(0,0,0,.18); }
+    header { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 14px 18px; }
+    h1 { margin: 0; font-size: 1.4rem; background: linear-gradient(135deg, var(--a), var(--b)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+    .badge { font-size: .75rem; font-weight: 800; padding: 4px 10px; border-radius: 999px; background: var(--glass2); border: 1px solid var(--line); }
+    .badge.live { background: linear-gradient(135deg, #ef4444, #f97316); color: #fff; border: 0; }
+    .badge.halt { background: var(--bad); color: #fff; border: 0; }
+    .spacer { flex: 1; }
+    button, .btn { font: inherit; font-weight: 700; border: 0; border-radius: 12px; padding: 9px 14px; cursor: pointer; color: #fff;
+      background: linear-gradient(135deg, var(--a), var(--b)); text-decoration: none; display: inline-block; }
+    button.ghost, .btn.ghost { background: var(--glass2); color: var(--text); border: 1px solid var(--line); }
+    button.danger { background: linear-gradient(135deg, #ef4444, #b91c1c); }
+    button:disabled { opacity: .5; cursor: default; }
+    .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }
+    .kpi { padding: 14px 16px; }
+    .kpi small { color: var(--muted); font-weight: 700; font-size: .75rem; text-transform: uppercase; letter-spacing: .06em; }
+    .kpi b { display: block; font-size: 1.5rem; margin-top: 4px; font-variant-numeric: tabular-nums; }
+    .up { color: var(--ok); } .down { color: var(--bad); }
+    .card { padding: 16px 18px; }
+    .card h2 { margin: 0 0 10px; font-size: .8rem; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; }
+    svg.chart { width: 100%; height: 220px; display: block; }
+    .legend { display: flex; gap: 14px; font-size: .8rem; color: var(--muted); flex-wrap: wrap; }
+    .legend i { display: inline-block; width: 18px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: 6px; }
+    table { width: 100%; border-collapse: collapse; font-size: .92rem; }
+    th { text-align: right; font-size: .72rem; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; padding: 6px; }
+    td { text-align: right; padding: 8px 6px; border-top: 1px solid var(--line); font-variant-numeric: tabular-nums; }
+    th:first-child, td:first-child { text-align: left; }
+    .dec { padding: 12px 0; border-top: 1px solid var(--line); }
+    .dec:first-child { border-top: 0; }
+    .dec .when { font-size: .78rem; color: var(--muted); font-weight: 700; }
+    .dec p { margin: 6px 0; line-height: 1.45; }
+    .dec ul { margin: 4px 0 0; padding-left: 18px; font-size: .9rem; }
+    .dec .note { color: var(--warn); }
+    .empty { color: var(--muted); }
+    .alert { padding: 12px 16px; border-radius: 16px; font-weight: 650; }
+    .alert.warn { background: rgba(251,191,36,.15); border: 1px solid rgba(251,191,36,.5); }
+    .alert.bad { background: rgba(251,113,133,.15); border: 1px solid rgba(251,113,133,.5); }
+  </style>
+</head>
+<body>
+<main>
+  <header class="glass">
+    <h1>Krypto-Trader</h1><span class="badge" id="mode"></span><span class="badge halt" id="halted" hidden>GESTOPPT</span>
+    <span class="spacer"></span>
+    <button class="ghost" id="decideBtn">Jetzt entscheiden lassen</button>
+    <button class="danger" id="haltBtn">Stopp</button>
+    <button id="resumeBtn" hidden>Weiter</button>
+    <a class="btn ghost" href="api/trades.csv">CSV</a>
+  </header>
+  <div id="alerts"></div>
+  <section class="kpis">
+    <div class="kpi glass"><small>Wert</small><b id="kValue">–</b></div>
+    <div class="kpi glass"><small>Gewinn / Verlust</small><b id="kPnl">–</b></div>
+    <div class="kpi glass"><small>Nur Bitcoin halten</small><b id="kBtc">–</b></div>
+    <div class="kpi glass"><small>Alle Coins gleich halten</small><b id="kBasket">–</b></div>
+    <div class="kpi glass"><small>Bargeld</small><b id="kCash">–</b></div>
+  </section>
+  <section class="card glass">
+    <h2>Verlauf</h2>
+    <svg class="chart" id="chart" viewBox="0 0 800 220" preserveAspectRatio="none"></svg>
+    <div class="legend"><span><i style="background:var(--a)"></i>Trader</span><span><i style="background:#f59e0b"></i>Bitcoin halten</span><span><i style="background:#64748b"></i>Alle Coins halten</span></div>
+  </section>
+  <section class="card glass"><h2>Bestand</h2><div id="holdings"></div></section>
+  <section class="card glass"><h2>Entscheidungen von Claude</h2><div id="decisions"></div></section>
+  <section class="card glass"><h2>Regeln</h2><div id="rules" class="empty"></div></section>
+</main>
+<script>
+  const $ = id => document.getElementById(id);
+  const eur = v => v == null ? "–" : v.toLocaleString("de-DE", { style: "currency", currency: "EUR" });
+  const pc = v => v == null ? "" : `${v > 0 ? "+" : ""}${v.toLocaleString("de-DE", { maximumFractionDigits: 1 })} %`;
+  const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const cls = v => v > 0 ? "up" : v < 0 ? "down" : "";
+
+  function chart(h) {
+    const svg = $("chart");
+    if (h.length < 2) { svg.innerHTML = `<text x="400" y="110" text-anchor="middle" fill="currentColor" opacity=".5">Der Verlauf erscheint nach den ersten Stunden</text>`; return; }
+    const keys = [["v", "var(--a)"], ["btc", "#f59e0b"], ["basket", "#64748b"]];
+    const vals = h.flatMap(p => keys.map(([k]) => p[k]).filter(Boolean));
+    let lo = Math.min(...vals), hi = Math.max(...vals); const pad = (hi - lo) * .1 || 1; lo -= pad; hi += pad;
+    const x = i => i / (h.length - 1) * 800, y = v => 210 - (v - lo) / (hi - lo) * 200;
+    svg.innerHTML = keys.map(([k, c]) => `<polyline fill="none" stroke="${c}" stroke-width="${k === "v" ? 3 : 2}" stroke-linejoin="round" vector-effect="non-scaling-stroke"
+      points="${h.map((p, i) => p[k] ? `${x(i).toFixed(1)},${y(p[k]).toFixed(1)}` : "").filter(Boolean).join(" ")}"/>`).join("");
+  }
+
+  async function load() {
+    let s;
+    try { s = await (await fetch("api/status")).json(); } catch { return; }
+    $("mode").textContent = s.mode === "live" ? "ECHTGELD" : "PAPERTRADING"; $("mode").classList.toggle("live", s.mode === "live");
+    const alerts = [];
+    if (s.live_blocked) alerts.push(`<div class="alert warn">„live“ ist eingestellt, aber die Bestätigung oder der API-Key fehlt – es läuft weiter Papertrading.</div>`);
+    if (s.error) alerts.push(`<div class="alert bad">${esc(s.error)}</div>`);
+    if (!s.ready) { $("alerts").innerHTML = alerts.join("") || `<div class="alert warn">Startet … die ersten Kurse werden geladen.</div>`; return; }
+    if (s.halted) alerts.push(`<div class="alert bad">Gestoppt: ${esc(s.halt_reason)}</div>`);
+    $("alerts").innerHTML = alerts.join("");
+    $("halted").hidden = !s.halted; $("haltBtn").hidden = s.halted; $("resumeBtn").hidden = !s.halted;
+    $("decideBtn").disabled = s.busy || s.halted; $("decideBtn").textContent = s.busy ? "Claude denkt nach …" : "Jetzt entscheiden lassen";
+    $("kValue").textContent = eur(s.value);
+    $("kPnl").innerHTML = `<span class="${cls(s.pnl_pct)}">${pc(s.pnl_pct) || "–"}</span>`;
+    const rel = v => v ? `${eur(v)} <span class="${cls(v - s.start_value)}" style="font-size:.9rem">${pc((v / s.start_value - 1) * 100)}</span>` : "–";
+    $("kBtc").innerHTML = rel(s.btc_hold); $("kBasket").innerHTML = rel(s.basket_hold); $("kCash").textContent = eur(s.cash);
+    chart(s.history);
+    $("holdings").innerHTML = s.holdings.length ? `<table><tr><th>Coin</th><th>Menge</th><th>Einstand</th><th>Wert</th><th>±</th></tr>${s.holdings.map(h => `
+      <tr><td><b>${esc(h.coin)}</b></td><td>${h.qty.toLocaleString("de-DE", { maximumFractionDigits: 6 })}</td><td>${eur(h.cost)}</td><td>${eur(h.value)}</td>
+      <td class="${cls(h.pnl_pct)}">${pc(h.pnl_pct)}</td></tr>`).join("")}</table>` : `<p class="empty">Gerade alles in Bargeld (${eur(s.cash)}).</p>`;
+    $("decisions").innerHTML = s.decisions.length ? s.decisions.map(d => `<div class="dec"><div class="when">${esc(d.date)}${d.manual ? " · von Hand" : ""}</div>
+      <p>${esc(d.summary)}</p><ul>${(d.fills || []).map(f => `<li>${f.side === "buy" ? "Kauf" : "Verkauf"} <b>${esc(f.coin)}</b> ${eur(f.eur)} – ${esc(f.reason)}</li>`).join("") || "<li class='empty'>keine Trades</li>"}
+      ${(d.notes || []).map(n => `<li class="note">${esc(n)}</li>`).join("")}</ul></div>`).join("") : `<p class="empty">Claude entscheidet täglich ab ${s.decision_hour} Uhr.</p>`;
+    const r = s.rules;
+    $("rules").innerHTML = `Budget ${eur(r.budget)} · ${esc(s.coins.join(", "))} · Börse ${esc(s.exchange)}<br>
+      Pro Kauf max. ${r.max_trade_pct} %, pro Coin max. ${r.max_position_pct} %, mind. ${r.min_cash_pct} % Bargeld ·
+      Stop-Loss −${r.stop_loss_pct} % · Gesamtstopp bei −${r.max_drawdown_pct} % · ${s.mode === "paper" ? `simulierte Gebühr ${r.fee_pct} %` : "echte Gebühren"}`;
+  }
+  $("decideBtn").onclick = async () => { $("decideBtn").disabled = true; $("decideBtn").textContent = "Claude denkt nach …"; await fetch("api/decide", { method: "POST" }); load(); };
+  $("haltBtn").onclick = async () => {
+    if (!confirm("Trading stoppen?")) return;
+    const sell = confirm("Auch alle Coins sofort verkaufen?\nOK = alles verkaufen, Abbrechen = nur stoppen");
+    await fetch("api/halt", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sell_all: sell }) }); load();
+  };
+  $("resumeBtn").onclick = async () => { if (confirm("Trading wieder freigeben?")) { await fetch("api/resume", { method: "POST" }); load(); } };
+  load(); setInterval(load, 30000);
+</script>
+</body>
+</html>

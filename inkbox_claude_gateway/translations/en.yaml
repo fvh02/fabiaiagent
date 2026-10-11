@@ -59,3 +59,6 @@ configuration:
   druck_url:
     name: 3D printing address
     description: Internal address of the 3D printing add-on. The default fits when it is installed from this repository. Leave empty if Claude should not print.
+  krypto_url:
+    name: Crypto trader address
+    description: Internal address of the crypto trader add-on. The default fits when installed from this repository. Empty = not connected.

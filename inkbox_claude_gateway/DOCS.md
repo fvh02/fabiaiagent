@@ -140,6 +140,13 @@ dir Bilder, slict für deinen Bambu Lab P1S und druckt nach deinem „Ja“. Sta
 Pause und Stopp gehen auch per Nachricht. Einrichtung siehe Doku des 3D-Druck-Add-ons; hier im
 Gateway ist die Adresse (`druck_url`) schon voreingestellt.
 
+## Krypto-Trader
+
+Mit dem Add-on **Krypto-Trader** aus diesem Repository kannst du per Nachricht fragen, wie es
+läuft („Wie steht der Krypto-Trader?“), dir Entscheidungen erklären lassen und das Trading
+stoppen („Trading stopp“, „Not-Aus“). Weitermachen und Zusatz-Entscheidungen fragt Claude vorher
+bei dir nach. Die Adresse (`krypto_url`) ist schon voreingestellt.
+
 ## claude.ai-Connectoren
 
 Mit dem OAuth-Token aus `claude setup-token` kann Claude nur antworten. Deine

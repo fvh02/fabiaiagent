@@ -1,0 +1,58 @@
+configuration:
+  mode:
+    name: Modus
+    description: paper = Papertrading mit echten Kursen und simuliertem Geld. live = echtes Geld (nur zusammen mit API-Key und Bestätigung unten).
+  budget_eur:
+    name: Budget (EUR)
+    description: Mit so viel Geld handelt Claude – nie mehr. Gilt beim Start eines neuen Kontos (auch beim Wechsel paper → live).
+  coins:
+    name: Coins
+    description: Erlaubte Kryptowährungen, mit Komma getrennt. Nur die großen sind deutlich weniger riskant.
+  decision_hour:
+    name: Entscheidung um
+    description: Ab dieser Stunde (0–23) entscheidet Claude einmal am Tag.
+  max_trade_pct:
+    name: Max. pro Kauf (%)
+    description: Ein Kauf höchstens so viel Prozent des Gesamtwerts.
+  max_position_pct:
+    name: Max. pro Coin (%)
+    description: Ein Coin höchstens so viel Prozent des Gesamtwerts.
+  min_cash_pct:
+    name: Bargeld-Reserve (%)
+    description: So viel Prozent bleiben immer als Euro übrig.
+  stop_loss_pct:
+    name: Stop-Loss (%)
+    description: Ein Coin wird automatisch verkauft, wenn er so viel unter dem Einkaufspreis liegt (stündlich geprüft).
+  max_drawdown_pct:
+    name: Verlustgrenze gesamt (%)
+    description: Liegt der Gesamtwert so viel unter dem Start, wird alles verkauft und das Trading gestoppt.
+  fee_pct:
+    name: Gebühr Papertrading (%)
+    description: Simulierte Gebühr pro Trade, damit das Papertrading realistisch bleibt.
+  exchange:
+    name: Börse
+    description: Kurse kommen von dieser Börse; im Live-Modus wird dort gehandelt.
+  api_key:
+    name: API-Key (nur live)
+    description: API-Key der Börse – NUR mit Handelsrecht, OHNE Auszahlungsrecht. Am besten für ein eigenes Unterkonto/Portfolio.
+  api_secret:
+    name: API-Secret (nur live)
+    description: Das zugehörige Secret.
+  api_password:
+    name: API-Passphrase
+    description: Nur falls die Börse eine Passphrase verlangt.
+  live_confirm:
+    name: Echtgeld-Bestätigung
+    description: Für echtes Trading hier genau ICH TRAGE DAS RISIKO eintragen. Sonst bleibt es beim Papertrading.
+  claude_oauth_token:
+    name: Claude-Token
+    description: Derselbe Token wie im Gateway (aus „claude setup-token“).
+  claude_model:
+    name: Claude-Modell
+    description: Optional, leer = Standard.
+  inkbox_api_key:
+    name: Inkbox API-Key
+    description: Für den täglichen Bericht und Warnungen per iMessage.
+  imessage_to:
+    name: Deine Handynummer
+    description: Im Format +491701234567.
