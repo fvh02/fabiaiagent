@@ -181,7 +181,7 @@
     $("rules").innerHTML = `Budget ${eur(r.budget)} · Entscheidung alle ${s.every_hours} h (nächste ${next} Uhr) · Börse ${esc(s.exchange)}<br>
       ${s.auto ? `Automatisch ${s.coins.length} meistgehandelte Coins: ` : ""}${esc(s.coins.join(", "))}<br>
       Pro Kauf max. ${r.max_trade_pct} %, großer Coin max. ${r.max_position_pct} %, kleiner Coin max. ${r.max_small_pct} %, mind. ${r.min_cash_pct} % Bargeld ·
-      Stop-Loss −${r.stop_loss_pct} % · Gesamtstopp bei −${r.max_drawdown_pct} % vom Einsatz · ${s.mode === "paper" ? `simulierte Gebühr ${r.fee_pct} %` : "echte Gebühren"}`;
+      Stop-Loss −${r.stop_loss_pct} % · Gesamtstopp bei −${r.max_drawdown_pct} % vom Start · ${s.mode === "paper" ? `simulierte Gebühr ${r.fee_pct} %` : "echte Gebühren"}`;
   }
   $("decideBtn").onclick = async () => { $("decideBtn").disabled = true; $("decideBtn").textContent = "Claude denkt nach …"; await fetch("api/decide", { method: "POST" }); load(); };
   $("haltBtn").onclick = async () => {
