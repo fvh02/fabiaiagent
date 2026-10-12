@@ -147,6 +147,13 @@ läuft („Wie steht der Krypto-Trader?“), dir Entscheidungen erklären lassen
 stoppen („Trading stopp“, „Not-Aus“). Weitermachen und Zusatz-Entscheidungen fragt Claude vorher
 bei dir nach. Die Adresse (`krypto_url`) ist schon voreingestellt.
 
+**Claude-Brücke (ab 0.12.0):** Der Trader nutzt für seine Entscheidungen die Claude-Anmeldung
+des Gateways, damit du keinen zweiten Token brauchst. Dafür läuft im Gateway ein kleiner Dienst
+(Port 8093, nur im internen Add-on-Netz), der reine Fragen ohne Werkzeuge außer Websuche an
+Claude weitergibt. Er ist mit einem zufälligen Schlüssel geschützt, den das Gateway nach
+`/share/claude-bridge/key` schreibt und nur Add-ons mit Zugriff auf `/share` lesen können.
+Nach einem Gateway-Update erst das Gateway, dann den Trader neu starten.
+
 ## claude.ai-Connectoren
 
 Mit dem OAuth-Token aus `claude setup-token` kann Claude nur antworten. Deine

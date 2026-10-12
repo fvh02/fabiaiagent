@@ -368,6 +368,16 @@ for path in sorted(Path(sys.argv[1]).glob("*_state/*.sqlite3")):
         db.close()
 PY
 
+# Claude bridge: other add-ons of this repository (e.g. the Krypto-Trader) ask Claude through this
+# gateway's login instead of needing their own. The key is shared through /share.
+BRIDGE_KEY_FILE=/data/claude-bridge.key
+[ -s "$BRIDGE_KEY_FILE" ] || python3 -c 'import secrets; print(secrets.token_urlsafe(32))' > "$BRIDGE_KEY_FILE"
+chmod 600 "$BRIDGE_KEY_FILE"
+mkdir -p /share/claude-bridge
+install -m 600 "$BRIDGE_KEY_FILE" /share/claude-bridge/key
+CLAUDE_BRIDGE_KEY="$(cat "$BRIDGE_KEY_FILE")" /opt/inkbox-claude/bin/python /usr/local/bin/claude-bridge &
+echo "[inkbox] Claude-Brücke für andere Add-ons: aktiv (Port 8093)"
+
 echo "[inkbox] Starte Gateway ..."
 cd "$PROJECT_DIR"
 exec inkbox-claude run

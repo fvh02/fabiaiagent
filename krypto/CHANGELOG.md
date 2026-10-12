@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.0
+
+- **Risikobereitschaft** im Dashboard: Vorsichtig, Ausgewogen oder Mutig. Die Stufe stellt die
+  Grenzen pro Kauf, pro Coin, die Bargeld-Reserve und den Stop-Loss ein und wird Claude bei jeder
+  Entscheidung mitgeteilt. Die Verlustgrenze gesamt bleibt immer.
+- **Kein eigener Claude-Token mehr nötig:** Der Trader fragt Claude über das Inkbox Claude
+  Gateway (ab 0.12.0) und nutzt dessen Anmeldung. Behebt „Not logged in · /login“.
+- Klarer Hinweis im Dashboard, wenn Claude nicht erreichbar oder nicht angemeldet ist.
+
 ## 0.2.0
 
 - Claude entscheidet **alle 3 Stunden** (einstellbar) statt einmal täglich, mit Stunden-Kursen

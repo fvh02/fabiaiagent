@@ -63,8 +63,11 @@ configuration:
     name: Real money confirmation
     description: For real trading enter exactly ICH TRAGE DAS RISIKO. Otherwise it stays paper trading.
   claude_oauth_token:
-    name: Claude token
-    description: Same token as in the gateway (from "claude setup-token").
+    name: Claude token (optional)
+    description: Leave empty – the trader then asks Claude through your Inkbox Claude Gateway (0.12.0+) with its login. Only needed for an own token from "claude setup-token".
+  claude_bridge_url:
+    name: Gateway address
+    description: Internal address of the Claude bridge in the gateway. The default fits when both are installed from this repository.
   claude_model:
     name: Claude model
     description: Optional, empty = default.

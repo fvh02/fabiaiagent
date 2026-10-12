@@ -8,7 +8,7 @@ import csv
 import json
 import logging
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import ccxt
@@ -37,6 +37,24 @@ class Rules:
     max_orders_day: int = 12
 
 
+# Risk levels the owner picks in the dashboard. "ausgewogen" keeps the values from the add-on options;
+# the loss limit for the whole portfolio (max_drawdown_pct) always comes from the options.
+RISK_LEVELS = {
+    "vorsichtig": {"max_trade_pct": 15, "max_position_pct": 30, "max_small_pct": 5, "min_cash_pct": 30, "stop_loss_pct": 8},
+    "ausgewogen": {},
+    "mutig": {"max_trade_pct": 35, "max_position_pct": 50, "max_small_pct": 20, "min_cash_pct": 5, "stop_loss_pct": 18},
+}
+RISK_HINTS = {
+    "vorsichtig": "The owner chose CAUTIOUS: prefer large coins, few and small trades, keep plenty of cash, cut losers early.",
+    "ausgewogen": "The owner chose BALANCED: weigh chances and risks evenly.",
+    "mutig": "The owner chose BOLD: larger positions and small coins with strong momentum are welcome, but still no blind gambling.",
+}
+
+
+def rules_for(base: Rules, level: str) -> Rules:
+    return replace(base, **RISK_LEVELS.get(level, {}))
+
+
 # -- ledger ------------------------------------------------------------------------
 class Ledger:
     def __init__(self, folder: Path):
@@ -51,6 +69,7 @@ class Ledger:
                 log.error("Ledger beschädigt – wird neu angelegt")
 
     def fresh(self, mode: str, budget: float, prices: dict[str, float]) -> None:
+        risk = self.data.get("risk", "ausgewogen")
         if self.data:
             archive = self.folder / f"krypto-{self.data.get('mode', 'alt')}-{int(time.time())}.json"
             archive.write_text(json.dumps(self.data))
@@ -58,6 +77,7 @@ class Ledger:
             "mode": mode, "started": time.time(), "start_value": budget, "cash": budget, "positions": {},
             "halted": False, "halt_reason": "", "last_decision": "", "bench": dict(prices),
             "history": [], "decisions": [], "trades_today": {"day": "", "count": 0},
+            "risk": risk,
         }
         self.save()
 

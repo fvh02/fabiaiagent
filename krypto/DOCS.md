@@ -12,7 +12,7 @@ Begründung. Standardmäßig wählt er aus den **meistgehandelten Coins der Bör
 
 ## So läuft es
 
-- **Alle 3 Stunden** entscheidet Claude (Claude Code mit deinem Token). Wird gehandelt, kommt
+- **Alle 3 Stunden** entscheidet Claude (über die Anmeldung deines Inkbox Claude Gateways). Wird gehandelt, kommt
   sofort eine iMessage mit Begründung; abends (einstellbar) ein Tagesbericht mit Vergleich.
 - **Coins:** `auto` = die 40 meistgehandelten Coins mit mindestens 250.000 € Tagesumsatz
   (Stablecoins wie USDT ausgenommen). Oder eine feste Liste, z. B. `BTC,ETH,SOL`.
@@ -23,6 +23,16 @@ Begründung. Standardmäßig wählt er aus den **meistgehandelten Coins der Bör
 - **Weitere feste Regeln:** nie mehr als das Budget (Vorgabe 500 €), höchstens 25 % pro Kauf,
   40 % pro großem Coin (BTC, ETH, SOL, XRP, ADA, DOGE, LINK …) und **10 % pro kleinem Coin**,
   mindestens 10 % Bargeld, höchstens 12 Orders am Tag.
+- **Risikobereitschaft** im Dashboard umschaltbar:
+
+  | Stufe | pro Kauf | großer Coin | kleiner Coin | Bargeld mind. | Stop-Loss |
+  |---|---|---|---|---|---|
+  | 🛡️ Vorsichtig | 15 % | 30 % | 5 % | 30 % | −8 % |
+  | ⚖️ Ausgewogen | deine Optionen (Vorgabe 25 / 40 / 10 / 10 / −12 %) |||||
+  | 🚀 Mutig | 35 % | 50 % | 20 % | 5 % | −18 % |
+
+  Claude bekommt die Stufe mitgeteilt und richtet seine Entscheidungen danach. Die
+  Verlustgrenze gesamt gilt immer. Umstellen kannst nur du – Claude kann die Stufe nicht ändern.
 - **Dashboard** in der Seitenleiste (**Krypto**): Wert, Verlauf mit Vergleichslinien, Bestand,
   alle Entscheidungen mit Begründung, Stopp/Not-Aus, CSV-Export.
 - **Per iMessage** (mit dem Gateway ab 0.11.0): „Wie läuft der Krypto-Trader?“,
@@ -30,7 +40,10 @@ Begründung. Standardmäßig wählt er aus den **meistgehandelten Coins der Bör
 
 ## Einrichtung (Papertrading)
 
-1. **Claude-Token** eintragen (derselbe wie im Gateway, aus `claude setup-token`).
+1. **Claude:** nichts eintragen. Der Trader fragt Claude über dein **Inkbox Claude Gateway
+   (ab 0.12.0)** und nutzt dessen Anmeldung. Das Gateway muss laufen; nach einem Gateway-Update
+   erst das Gateway, dann den Trader neu starten. Nur wenn du das Gateway nicht nutzt: einen
+   eigenen Token aus `claude setup-token` bei **Claude-Token** eintragen.
 2. **Inkbox API-Key** und **Handynummer** für die Berichte.
 3. Budget, Coins, Uhrzeit und Grenzen nach Wunsch, Börse für die Kurse (Vorgabe Kraken).
 4. Starten. Die erste Entscheidung kommt gleich nach dem Start, dann alle 3 Stunden; im
@@ -39,6 +52,12 @@ Begründung. Standardmäßig wählt er aus den **meistgehandelten Coins der Bör
 Jede Entscheidung verbraucht etwas von deinem Claude-Kontingent – alle 3 Stunden sind 8 am Tag.
 Kleine Coins schwanken extrem (−30 % an einem Tag kommt vor); Stop-Loss und die 10-%-Grenze
 pro kleinem Coin begrenzen das, verhindern Verluste aber nicht.
+
+## „Not logged in · /login“
+
+Diese Meldung heißt: Claude ist im Trader nicht angemeldet. Lösung: Gateway auf 0.12.0 oder
+neuer aktualisieren und neu starten, danach den Trader neu starten und das Feld Claude-Token
+leer lassen. Im Dashboard verschwindet dann der rote Hinweis.
 
 ## Umstellen auf echtes Geld (erst nach einer Testphase!)
 

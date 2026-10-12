@@ -1,0 +1,76 @@
+#!/usr/bin/env python3
+"""Claude bridge: lets other add-ons of this repository ask Claude through the gateway's login.
+
+Other add-ons cannot share the claude.ai login (two devices with the same login sign each other
+out), so they send their prompt here instead. Only plain questions are possible: the bridge itself
+builds the command and allows no tools except web search, in an empty working directory.
+
+POST /ask  {"prompt": str, "schema": object?, "web": bool?, "max_turns": int?, "model": str?}
+Header X-Bridge-Key must match the key the gateway writes to /share/claude-bridge/key.
+Answers with Claude Code's JSON result.
+"""
+
+import hmac
+import json
+import os
+import subprocess
+import tempfile
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+PORT = int(os.environ.get("CLAUDE_BRIDGE_PORT", "8093"))
+KEY = os.environ.get("CLAUDE_BRIDGE_KEY", "")
+TIMEOUT = 900
+MAX_PROMPT = 200_000
+lock = threading.Lock()  # one question at a time
+
+
+class Handler(BaseHTTPRequestHandler):
+    def log_message(self, fmt, *args):
+        pass
+
+    def reply(self, status: int, data: dict) -> None:
+        body = json.dumps(data, ensure_ascii=False).encode()
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_GET(self):
+        self.reply(200, {"ok": True})
+
+    def do_POST(self):
+        if self.path != "/ask" or not KEY or not hmac.compare_digest(self.headers.get("X-Bridge-Key", ""), KEY):
+            self.reply(403, {"error": "forbidden"})
+            return
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+            if length > MAX_PROMPT * 2:
+                raise ValueError("too large")
+            req = json.loads(self.rfile.read(length))
+            prompt = str(req["prompt"])[:MAX_PROMPT]
+        except (ValueError, KeyError, TypeError):
+            self.reply(400, {"error": "bad request"})
+            return
+        cmd = ["claude", "-p", prompt, "--output-format", "json", "--max-turns", str(max(1, min(20, int(req.get("max_turns") or 8))))]
+        if req.get("schema"):
+            cmd += ["--json-schema", json.dumps(req["schema"])]
+        if req.get("web"):
+            cmd += ["--allowedTools", "WebSearch", "WebFetch"]
+        if req.get("model"):
+            cmd += ["--model", str(req["model"])[:60]]
+        with lock, tempfile.TemporaryDirectory() as workdir:
+            try:
+                proc = subprocess.run(cmd, capture_output=True, text=True, timeout=TIMEOUT, cwd=workdir, stdin=subprocess.DEVNULL)
+            except subprocess.TimeoutExpired:
+                self.reply(504, {"error": "Claude hat zu lange gebraucht"})
+                return
+        try:
+            self.reply(200, json.loads(proc.stdout))
+        except ValueError:
+            self.reply(502, {"error": (proc.stderr or proc.stdout or "keine Antwort").strip()[-400:]})
+
+
+if __name__ == "__main__":
+    ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()

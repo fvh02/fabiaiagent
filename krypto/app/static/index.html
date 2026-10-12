@@ -55,6 +55,13 @@
     .empty { color: var(--muted); }
     .alert { padding: 12px 16px; border-radius: 16px; font-weight: 650; }
     .alert.warn { background: rgba(251,191,36,.15); border: 1px solid rgba(251,191,36,.5); }
+    .risk { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; padding: 5px; border-radius: 16px; background: var(--glass2); border: 1px solid var(--line); }
+    .risk button { background: transparent; color: var(--text); padding: 10px 6px; border-radius: 12px; display: grid; gap: 2px; text-align: center; }
+    .risk button span { font-size: 1.2rem; }
+    .risk button small { font-weight: 600; font-size: .72rem; color: var(--muted); }
+    .risk button.on { background: linear-gradient(135deg, var(--a), var(--b)); color: #fff; }
+    .risk button.on small { color: rgba(255,255,255,.85); }
+    .riskinfo { margin: 10px 0 0; font-size: .88rem; color: var(--muted); line-height: 1.45; }
     .alert.bad { background: rgba(251,113,133,.15); border: 1px solid rgba(251,113,133,.5); }
   </style>
 </head>
@@ -80,6 +87,14 @@
     <h2>Verlauf</h2>
     <svg class="chart" id="chart" viewBox="0 0 800 220" preserveAspectRatio="none"></svg>
     <div class="legend"><span><i style="background:var(--a)"></i>Trader</span><span><i style="background:#f59e0b"></i>Bitcoin halten</span><span><i style="background:#64748b"></i>Alle Coins halten</span></div>
+  </section>
+  <section class="card glass"><h2>Risikobereitschaft</h2>
+    <div class="risk" id="risk">
+      <button data-level="vorsichtig"><span>🛡️</span>Vorsichtig<small>weniger Schwankung</small></button>
+      <button data-level="ausgewogen"><span>⚖️</span>Ausgewogen<small>deine Einstellungen</small></button>
+      <button data-level="mutig"><span>🚀</span>Mutig<small>mehr Chance, mehr Risiko</small></button>
+    </div>
+    <p class="riskinfo" id="riskInfo"></p>
   </section>
   <section class="card glass"><h2>Bestand</h2><div id="holdings"></div></section>
   <section class="card glass"><h2>Entscheidungen von Claude</h2><div id="decisions"></div></section>
@@ -109,6 +124,7 @@
     $("mode").textContent = s.mode === "live" ? "ECHTGELD" : "PAPERTRADING"; $("mode").classList.toggle("live", s.mode === "live");
     const alerts = [];
     if (s.live_blocked) alerts.push(`<div class="alert warn">„live“ ist eingestellt, aber die Bestätigung oder der API-Key fehlt – es läuft weiter Papertrading.</div>`);
+    if (s.claude === "missing") alerts.push(`<div class="alert bad">Claude ist nicht angemeldet. Aktualisiere das <b>Inkbox Claude Gateway</b> auf 0.12.0 oder neuer und starte erst das Gateway, dann den Trader neu – der Trader nutzt dann die Claude-Anmeldung des Gateways. Alternativ einen Claude-Token in den Trader-Optionen eintragen.</div>`);
     if (s.error) alerts.push(`<div class="alert bad">${esc(s.error)}</div>`);
     if (!s.ready) { $("alerts").innerHTML = alerts.join("") || `<div class="alert warn">Startet … die ersten Kurse werden geladen.</div>`; return; }
     if (s.halted) alerts.push(`<div class="alert bad">Gestoppt: ${esc(s.halt_reason)}</div>`);
@@ -127,6 +143,8 @@
       <p>${esc(d.summary)}</p><ul>${(d.fills || []).map(f => `<li>${f.side === "buy" ? "Kauf" : "Verkauf"} <b>${esc(f.coin)}</b> ${eur(f.eur)} – ${esc(f.reason)}</li>`).join("") || "<li class='empty'>keine Trades</li>"}
       ${(d.notes || []).map(n => `<li class="note">${esc(n)}</li>`).join("")}</ul></div>`).join("") : `<p class="empty">Claude entscheidet alle ${s.every_hours} Stunden${s.next_decision ? ` – das nächste Mal gegen ${new Date(s.next_decision * 1000).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })} Uhr` : ""}.</p>`;
     const r = s.rules;
+    document.querySelectorAll("#risk button").forEach(b => { b.classList.toggle("on", b.dataset.level === s.risk); b.disabled = riskBusy; });
+    $("riskInfo").textContent = `Pro Kauf max. ${r.max_trade_pct} % · kleiner Coin max. ${r.max_small_pct} % · mind. ${r.min_cash_pct} % Bargeld · Stop-Loss −${r.stop_loss_pct} %. Gilt ab sofort und für Claudes nächste Entscheidung; der Gesamtstopp bei −${r.max_drawdown_pct} % bleibt immer.`;
     const next = s.next_decision ? new Date(s.next_decision * 1000).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" }) : "–";
     $("rules").innerHTML = `Budget ${eur(r.budget)} · Entscheidung alle ${s.every_hours} h (nächste ${next} Uhr) · Börse ${esc(s.exchange)}<br>
       ${s.auto ? `Automatisch ${s.coins.length} meistgehandelte Coins: ` : ""}${esc(s.coins.join(", "))}<br>
@@ -140,6 +158,13 @@
     await fetch("api/halt", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sell_all: sell }) }); load();
   };
   $("resumeBtn").onclick = async () => { if (confirm("Trading wieder freigeben?")) { await fetch("api/resume", { method: "POST" }); load(); } };
+  let riskBusy = false;
+  document.querySelectorAll("#risk button").forEach(b => b.onclick = async () => {
+    if (b.classList.contains("on") || riskBusy) return;
+    riskBusy = true;
+    try { await fetch("api/risk", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ level: b.dataset.level }) }); }
+    finally { riskBusy = false; load(); }
+  });
   load(); setInterval(load, 30000);
 </script>
 </body>

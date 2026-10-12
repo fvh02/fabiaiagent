@@ -63,8 +63,11 @@ configuration:
     name: Echtgeld-Bestätigung
     description: Für echtes Trading hier genau ICH TRAGE DAS RISIKO eintragen. Sonst bleibt es beim Papertrading.
   claude_oauth_token:
-    name: Claude-Token
-    description: Derselbe Token wie im Gateway (aus „claude setup-token“).
+    name: Claude-Token (optional)
+    description: Leer lassen – dann fragt der Trader Claude über dein Inkbox Claude Gateway (ab 0.12.0) mit dessen Anmeldung. Nur nötig, wenn du einen eigenen Token aus „claude setup-token“ nutzen willst.
+  claude_bridge_url:
+    name: Gateway-Adresse
+    description: Interne Adresse der Claude-Brücke im Gateway. Die Vorgabe passt, wenn beide aus diesem Repository installiert sind.
   claude_model:
     name: Claude-Modell
     description: Optional, leer = Standard.

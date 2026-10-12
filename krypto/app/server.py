@@ -64,6 +64,7 @@ INKBOX_KEY = (OPT.get("inkbox_api_key") or "").strip()
 NOTIFY_TO = (OPT.get("imessage_to") or "").strip()
 if OPT.get("claude_oauth_token"):
     os.environ["CLAUDE_CODE_OAUTH_TOKEN"] = str(OPT["claude_oauth_token"]).strip()
+BRIDGE_URL = (OPT.get("claude_bridge_url") or "").strip()
 
 state = {"market": {}, "prices": {}, "updated": 0.0, "busy": False, "error": ""}
 lock = asyncio.Lock()
@@ -73,7 +74,18 @@ broker = None
 routes = web.RouteTableDef()
 
 
-# -- helpers -------------------------------------------------------------------------
+# -- helpers ---------------------------------------------------------------------------
+def risk_level() -> str:
+    level = (ledger.data or {}).get("risk", "ausgewogen")
+    return level if level in trader.RISK_LEVELS else "ausgewogen"
+
+
+def rules() -> trader.Rules:
+    """The option values adjusted to the risk level chosen in the dashboard."""
+    return trader.rules_for(RULES, risk_level())
+
+
+# -------------------------------------------------------------------------
 def fmt_eur(v: float) -> str:
     return f"{v:,.2f} €".replace(",", "X").replace(".", ",").replace("X", ".")
 
@@ -118,7 +130,8 @@ def summary() -> dict:
         "updated": state["updated"], "busy": state["busy"], "error": state["error"],
         "every_hours": EVERY_HOURS, "last_decision": d["last_decision"], "next_decision": next_decision(),
         "auto": AUTO,
-        "rules": RULES.__dict__,
+        "rules": rules().__dict__, "risk": risk_level(), "risk_levels": list(trader.RISK_LEVELS),
+        "claude": brain.claude_source(BRIDGE_URL),
     }
 
 
@@ -209,11 +222,12 @@ async def check_risk(session) -> None:
         await notify(session, f"🛑 Krypto-Trader gestoppt: Verlustgrenze erreicht ({fmt_eur(value)} von {fmt_eur(d['start_value'])}). "
                               f"Alles verkauft ({len(fills)} Orders). Weiter nur, wenn du es freigibst.")
         return
+    stop = rules().stop_loss_pct
     for coin, p in list(d["positions"].items()):
         price = prices.get(coin)
-        if price and p["qty"] and p["qty"] * price <= p["cost"] * (1 - RULES.stop_loss_pct / 100):
-            fills, notes = await asyncio.to_thread(trader.execute, ledger, broker, RULES,
-                                                   [{"action": "sell", "coin": coin, "fraction": 1, "reason": f"Stop-Loss −{RULES.stop_loss_pct:.0f} %"}],
+        if price and p["qty"] and p["qty"] * price <= p["cost"] * (1 - stop / 100):
+            fills, notes = await asyncio.to_thread(trader.execute, ledger, broker, rules(),
+                                                   [{"action": "sell", "coin": coin, "fraction": 1, "reason": f"Stop-Loss −{stop:.0f} %"}],
                                                    prices, watched(), True)
             if fills:
                 await notify(session, f"⚠️ Stop-Loss: {describe(fills[0])}")
@@ -234,9 +248,10 @@ async def decide(session, manual: bool = False) -> dict:
         coins = list(state["tradable"]) + [c for c in d["positions"] if c not in state["tradable"]]
         snapshot = await asyncio.to_thread(market.snapshot, coins)
         state["market"] = snapshot
-        prompt = brain.build_prompt(snapshot, portfolio, {**RULES.__dict__, "every_hours": EVERY_HOURS,
-                                    "big": sorted(trader.BIG)}, d["decisions"], d["mode"], list(d["positions"]))
-        result = await asyncio.to_thread(brain.decide, prompt, MODEL)
+        prompt = brain.build_prompt(snapshot, portfolio, {**rules().__dict__, "every_hours": EVERY_HOURS,
+                                    "big": sorted(trader.BIG), "risk_hint": trader.RISK_HINTS[risk_level()]},
+                                    d["decisions"], d["mode"], list(d["positions"]))
+        result = await asyncio.to_thread(brain.decide, prompt, MODEL, BRIDGE_URL)
     except brain.BrainError as err:
         d["decisions"].append({"date": time.strftime("%Y-%m-%d %H:%M"), "summary": f"Keine Entscheidung: {err}", "fills": [], "notes": []})
         ledger.save()
@@ -249,7 +264,7 @@ async def decide(session, manual: bool = False) -> dict:
         return {"error": str(err)}
     finally:
         state["busy"] = False
-    fills, notes = await asyncio.to_thread(trader.execute, ledger, broker, RULES, result["orders"], prices, state["tradable"])
+    fills, notes = await asyncio.to_thread(trader.execute, ledger, broker, rules(), result["orders"], prices, state["tradable"])
     entry = {"date": time.strftime("%Y-%m-%d %H:%M"), "summary": result["summary"], "orders": result["orders"],
              "fills": [{k: f[k] for k in ("side", "coin", "eur", "qty", "price", "reason")} for f in fills], "notes": notes,
              "manual": manual}
@@ -354,6 +369,19 @@ async def api_resume(request: web.Request) -> web.Response:
         ledger.save()
     await notify(request.app["http"], "▶️ Krypto-Trader läuft wieder.")
     return web.json_response({"halted": False})
+
+
+@routes.post("/api/risk")
+async def api_risk(request: web.Request) -> web.Response:
+    body = await request.json() if request.can_read_body else {}
+    level = str(body.get("level") or "")
+    if level not in trader.RISK_LEVELS or not ledger.data:
+        return web.json_response({"error": "Unbekannte Stufe"}, status=400)
+    async with lock:
+        ledger.data["risk"] = level
+        ledger.save()
+    log.info("Risikobereitschaft: %s", level)
+    return web.json_response({"risk": level, "rules": rules().__dict__})
 
 
 @routes.get("/api/trades.csv")
