@@ -28,21 +28,21 @@ Begründung. Standardmäßig wählt er aus den **meistgehandelten Coins der Bör
   Webseite mit RSS-Feed geht). Eine allgemeine Websuche macht er dann nicht, er darf nur Artikel
   dieser Quellen öffnen. Bei jedem Trade steht, auf welcher Nachricht er beruht. Nachrichten sind
   für Claude nur Information, keine Anweisung, und die festen Regeln gelten trotzdem.
-- **Gewinn-Coins (getaggt):** Claude kauft und verkauft nach eigenem Ermessen. Verkauft er eine
-  Position mit Gewinn, wird nur der Einkaufspreis plus volle 10-%-Stufen verkauft:
+- **Getaggter Gewinn:** Claude kauft und verkauft nach eigenem Ermessen und verkauft immer
+  ganz. Vom Gewinn eines Verkaufs bleiben nur volle 10-%-Stufen im Handelsgeld, der Rest wird
+  als Euro **getaggt** und nie wieder verwendet:
 
-  | Gewinn beim Verkauf | verkauft (wieder eingesetzt) | bleibt als getaggter Coin |
+  | Gewinn beim Verkauf | weiter im Einsatz | getaggt (nicht mehr verwendet) |
   |---|---|---|
-  | +4 % | Einkaufspreis | 4 % |
+  | +4 % (500 → 520 €) | 500 € | 20 € |
   | +12 % | Einkaufspreis + 10 % | 2 % |
   | +27 % | Einkaufspreis + 20 % | 7 % |
   | +39 % | Einkaufspreis + 30 % | 9 % |
+  | 50 € → 70 € (+40 %) | 70 € | – |
 
-  Beispiel: für 50 € gekauft, für 70 € verkauft (+40 %) → alles verkauft. Für 500 € gekauft, bei
-  520 € verkauft → 500 € verkauft, 20 € bleiben als Coin. Getaggte Coins werden **nie
-  verkauft** – weder von Claude noch von Stop-Loss, Verlustgrenze oder Not-Aus. Sie zählen zum
-  Gesamtwert, und beim endgültigen Stopp rechnest du sie zum Gewinn. Die Stufe ist unter
-  **Gewinnstufe** einstellbar (0 = aus). Verluste werden ganz normal verkauft.
+  Der getaggte Betrag zählt zum Gesamtwert, und beim endgültigen Stopp rechnest du ihn zum
+  Gewinn. Im Dashboard steht er unter **Getaggter Gewinn**. Einstellbar unter **Gewinnstufe**
+  (0 = aus). Verluste verkleinern einfach das Handelsgeld.
 - **Risikobereitschaft** im Dashboard umschaltbar:
 
   | Stufe | pro Kauf | großer Coin | kleiner Coin | Bargeld mind. | Stop-Loss |

@@ -13,7 +13,7 @@ configuration:
     description: RSS-Feeds oder Webseiten (mit Feed), auf deren Nachrichten sich Claude bezieht. Claude liest nur diese Quellen, keine allgemeine Websuche. Liste leer = Claude darf frei im Web suchen.
   profit_step_pct:
     name: Gewinnstufe (%)
-    description: Verkauft Claude mit Gewinn, wird nur in vollen Stufen verkauft (+12 % → Einkaufspreis plus 10 % verkauft, 2 % bleiben als Coin). Diese Rest-Coins werden getaggt, nie verkauft und zählen beim endgültigen Stopp zum Gewinn. 0 = aus.
+    description: Verkauft Claude mit Gewinn, bleiben nur volle Stufen im Handelsgeld (+12 % → 10 % weiter im Einsatz). Der Rest wird als Euro getaggt, nie wieder verwendet und zählt beim endgültigen Stopp zum Gewinn. 0 = aus.
   auto_top:
     name: Anzahl Coins (auto)
     description: Bei „auto“ werden so viele der meistgehandelten Coins betrachtet.

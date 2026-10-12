@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.6.0
+
+- **Getaggter Gewinn in Euro:** Claude verkauft Positionen ganz. Vom Gewinn bleiben nur volle
+  10-%-Stufen im Handelsgeld (+12 % → 10 % weiter im Einsatz, 2 % getaggt; +27 % → 20 % / 7 %).
+  Der Rest wird als Euro getaggt und nie wieder für Käufe verwendet; er zählt zum Gesamtwert und
+  beim endgültigen Stopp zum Gewinn.
+- Gewinn-Coins aus 0.5.0 werden beim Start verkauft und als Euro getaggt.
+
 ## 0.5.0
 
 - **Gewinn-Coins statt Einsatz-Automatik:** Kein automatischer Verkauf mehr bei +10 % – Claude

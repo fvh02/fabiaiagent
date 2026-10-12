@@ -96,7 +96,7 @@
     <div class="kpi glass"><small>Alle Coins gleich halten</small><b id="kBasket">–</b></div>
     <div class="kpi glass"><small>Bargeld</small><b id="kCash">–</b></div>
   </section>
-  <section class="card glass"><h2>Gewinn-Coins <span class="tag">getaggt</span></h2>
+  <section class="card glass"><h2>Getaggter Gewinn</h2>
     <div id="kept" class="muted">–</div>
   </section>
   <section class="card glass">
@@ -158,11 +158,10 @@
     $("holdings").innerHTML = s.holdings.length ? `<table><tr><th>Coin</th><th>Menge</th><th>Einstand</th><th>Wert</th><th>±</th></tr>${s.holdings.map(h => `
       <tr><td><b>${esc(h.coin)}</b></td><td>${h.qty.toLocaleString("de-DE", h.qty >= 1000 ? { notation: "compact", maximumFractionDigits: 2 } : { maximumSignificantDigits: 5 })}</td><td>${eur(h.cost)}</td><td>${eur(h.value)}</td>
       <td class="${cls(h.pnl_pct)}">${pc(h.pnl_pct)}</td></tr>`).join("")}</table>` : `<p class="empty">Gerade alles in Bargeld (${eur(s.cash)}).</p>`;
-    const tagged = s.kept.length ? `<table><tr><th>Coin</th><th>Menge</th><th>beim Taggen</th><th>Wert jetzt</th></tr>${s.kept.map(k => `
-      <tr><td><b>${esc(k.coin)}</b> <span class="tag">getaggt</span></td><td>${k.qty.toLocaleString("de-DE", k.qty >= 1000 ? { notation: "compact", maximumFractionDigits: 2 } : { maximumSignificantDigits: 5 })}</td>
-      <td>${eur(k.eur_tagged)}</td><td>${eur(k.value)}</td></tr>`).join("")}</table>` : "";
-    $("kept").innerHTML = (s.step_pct ? `Verkauft Claude mit Gewinn, wird nur in vollen ${s.step_pct}-%-Stufen verkauft (z. B. +12 % → 10 % verkauft, 2 % bleiben). Der Rest bleibt als Coin liegen, wird getaggt und <b>nie verkauft</b> – er zählt beim endgültigen Stopp zu deinem Gewinn.`
-      : "Gewinnstufen sind ausgeschaltet.") + (s.kept.length ? `<p>Gewinn-Coins zusammen: <b>${eur(s.kept_value)}</b> · Trader arbeitet mit ${eur(s.trading_value)}</p>${tagged}` : `<p class="empty">Noch keine Gewinn-Coins.</p>`);
+    $("kept").innerHTML = (s.step_pct ? `Verkauft Claude mit Gewinn, kommen nur volle ${s.step_pct}-%-Stufen zurück ins Handelsgeld (z. B. +12 % → 10 % weiter im Einsatz). Der Rest wird als Euro <span class="tag">getaggt</span> und <b>nie wieder verwendet</b> – er zählt beim endgültigen Stopp zu deinem Gewinn.`
+      : "Gewinnstufen sind ausgeschaltet.") + (s.locked ? `<p style="font-size:1.5rem;margin:12px 0 4px;color:var(--text)"><b>${eur(s.locked)}</b></p>
+      <p>Trader arbeitet mit ${eur(s.trading_value)}.${s.tags.length ? " Zuletzt: " + s.tags.slice(0, 5).map(t => `${esc(t.coin)} ${eur(t.eur)}${t.pct ? ` (${t.pct.toLocaleString("de-DE")} %)` : ""}`).join(" · ") : ""}</p>`
+      : `<p class="empty">Noch nichts getaggt.</p>`);
     const link = (n, body) => /^https?:\/\//.test(n.link || "") ? `<a href="${esc(n.link)}" target="_blank" rel="noopener noreferrer">${body}</a>` : body;
     $("newsCard").hidden = !s.sources.length;
     $("sources").innerHTML = s.sources.map(u => { const st = s.news_status[u]; let host = u; try { host = new URL(u.includes("://") ? u : "https://" + u).hostname.replace(/^www\./, ""); } catch {}
@@ -171,7 +170,7 @@
       ${link(n, `<b>${esc(n.title)}</b>`)}</div>`).join("") : `<p class="empty">${s.news_at ? "Gerade keine frischen Nachrichten." : "Nachrichten werden geladen …"}</p>`;
     $("decisions").innerHTML = s.decisions.length ? s.decisions.map(d => `<div class="dec"><div class="when">${esc(d.date)}${d.manual ? " · von Hand" : ""}</div>
       <p>${esc(d.summary)}</p><ul>${(d.fills || []).map(f => `<li>${f.side === "buy" ? "Kauf" : "Verkauf"} <b>${esc(f.coin)}</b> ${eur(f.eur)} – ${esc(f.reason)}
-        ${f.kept_qty ? `<div class="newsref"><span class="tag">getaggt</span> ${eur(f.kept_qty * f.price)} (${f.kept_pct.toLocaleString("de-DE")} % Gewinn) bleiben als ${esc(f.coin)}</div>` : ""}
+        ${f.locked_eur ? `<div class="newsref"><span class="tag">getaggt</span> ${eur(f.locked_eur)} (${f.locked_pct.toLocaleString("de-DE")} %) Gewinn – wird nicht mehr verwendet</div>` : ""}
         ${(f.news || []).map(n => `<div class="newsref">📰 ${esc(n.source)}: ${link(n, esc(n.title))}</div>`).join("")}</li>`).join("") || "<li class='empty'>keine Trades</li>"}
       ${(d.notes || []).map(n => `<li class="note">${esc(n)}</li>`).join("")}</ul></div>`).join("") : `<p class="empty">Claude entscheidet alle ${s.every_hours} Stunden${s.next_decision ? ` – das nächste Mal gegen ${new Date(s.next_decision * 1000).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })} Uhr` : ""}.</p>`;
     const r = s.rules;

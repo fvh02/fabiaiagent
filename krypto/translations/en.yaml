@@ -13,7 +13,7 @@ configuration:
     description: RSS feeds or web pages (with a feed) Claude bases its decisions on. Claude only reads these sources, no general web search. Empty list = Claude may search the web freely.
   profit_step_pct:
     name: Profit step (%)
-    description: When Claude sells with a profit, only whole steps are sold (+12 % → cost plus 10 % sold, 2 % stay as coins). These leftover coins are tagged, never sold and count as profit when you finally stop the trader. 0 = off.
+    description: When Claude sells with a profit, only whole steps stay in the trading money (+12 % → 10 % keep working). The rest is tagged in euros, never used again and counts as profit when you finally stop the trader. 0 = off.
   auto_top:
     name: Number of coins (auto)
     description: With "auto", this many of the most traded coins are considered.

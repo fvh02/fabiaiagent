@@ -77,7 +77,7 @@ class Ledger:
             "mode": mode, "started": time.time(), "start_value": budget, "cash": budget, "positions": {},
             "halted": False, "halt_reason": "", "last_decision": "", "bench": dict(prices),
             "history": [], "decisions": [], "trades_today": {"day": "", "count": 0},
-            "risk": risk, "kept": {}, "tags": [],
+            "risk": risk, "locked": 0.0, "tags": [],
         }
         self.save()
 
@@ -90,13 +90,22 @@ class Ledger:
     def ready(self) -> bool:
         return bool(self.data)
 
-    def value(self, prices: dict[str, float]) -> float:
-        """What the trader works with: cash and coins it may sell (without the tagged profit coins)."""
-        return self.data["cash"] + sum(p["qty"] * prices.get(c, 0) for c, p in self.data["positions"].items())
+    @property
+    def locked(self) -> float:
+        """Tagged profit in EUR: never used again, counted as profit when the trader is finally stopped."""
+        return self.data.get("locked") or 0.0
 
-    def kept_value(self, prices: dict[str, float]) -> float:
-        """Tagged profit coins: never sold, counted as profit when the trader is finally stopped."""
-        return sum(k["qty"] * prices.get(c, 0) for c, k in (self.data.get("kept") or {}).items())
+    def value(self, prices: dict[str, float]) -> float:
+        """What the trader works with: cash and coins, without the tagged profit."""
+        return self.data["cash"] - self.locked + sum(p["qty"] * prices.get(c, 0) for c, p in self.data["positions"].items())
+
+    def total(self, prices: dict[str, float]) -> float:
+        """Everything: what the trader works with plus the tagged profit."""
+        return self.value(prices) + self.locked
+
+    def lock(self, eur: float, coin: str, pct: float, t: float) -> None:
+        self.data["locked"] = round(self.locked + eur, 2)
+        self.data.setdefault("tags", []).append({"t": t, "coin": coin, "eur": round(eur, 2), "pct": pct})
 
     def record_trade(self, fill: dict) -> None:
         new = not self.csv.exists()
@@ -117,20 +126,15 @@ class Ledger:
             pos["qty"] += fill["qty"]
             pos["cost"] += fill["eur"] + cash_fee
         else:
-            kept_qty = fill.get("kept_qty", 0.0)
-            share = min(1.0, (fill["qty"] + kept_qty) / pos["qty"]) if pos["qty"] else 1.0
+            share = min(1.0, fill["qty"] / pos["qty"]) if pos["qty"] else 1.0
             pos["cost"] *= 1 - share
-            pos["qty"] -= fill["qty"] + kept_qty
-            if kept_qty > 0:
-                kept = self.data.setdefault("kept", {}).setdefault(fill["coin"], {"qty": 0.0, "eur": 0.0})
-                kept["qty"] += kept_qty
-                kept["eur"] = round(kept["eur"] + kept_qty * fill["price"], 2)
-                self.data.setdefault("tags", []).append({"t": fill["t"], "coin": fill["coin"], "qty": kept_qty,
-                                                         "eur": round(kept_qty * fill["price"], 2), "pct": fill.get("kept_pct")})
+            pos["qty"] -= fill["qty"]
             self.data["cash"] += fill["eur"] - cash_fee
             if pos["qty"] <= 1e-10:
                 del self.data["positions"][fill["coin"]]
         self.data["cash"] = round(self.data["cash"], 2)
+        if fill.get("locked_eur"):
+            self.lock(fill["locked_eur"], fill["coin"], fill.get("locked_pct", 0.0), fill["t"])
         self.record_trade(fill)
         self.save()
 
@@ -216,20 +220,16 @@ class LiveBroker:
 
 
 # -- risk rules + execution ------------------------------------------------------------
-def split_profit(qty: float, cost: float, price: float, step_pct: float) -> tuple[float, float, float]:
-    """Selling qty coins that cost `cost` in total: only whole profit steps are sold.
+def profit_lock(received: float, cost: float, step_pct: float) -> tuple[float, float]:
+    """Of a sale's profit only whole steps stay in use; the rest is tagged and never used again.
 
-    +12 % → sell cost +10 %, keep 2 %; +27 % → sell +20 %, keep 7 %. Returns (sell qty, keep qty, kept %)."""
-    value = qty * price
-    if step_pct <= 0 or cost <= 0 or value <= cost:
-        return qty, 0.0, 0.0
-    profit_pct = round((value / cost - 1) * 100, 6)  # 50 € → 70 € is exactly +40 %
+    +12 % → 10 % stay in use, 2 % are tagged; +27 % → 20 % / 7 %. Returns (tagged EUR, tagged %)."""
+    if step_pct <= 0 or cost <= 0 or received <= cost:
+        return 0.0, 0.0
+    profit_pct = round((received / cost - 1) * 100, 6)  # 50 € → 70 € is exactly +40 %
     counted = int(profit_pct // step_pct) * step_pct
-    sell_qty = min(qty, cost * (1 + counted / 100) / price)
-    keep = qty - sell_qty
-    if keep * price < 0.01:  # nothing worth tagging
-        return qty, 0.0, 0.0
-    return sell_qty, keep, round(profit_pct - counted, 2)
+    locked = round(received - cost * (1 + counted / 100), 2)
+    return (locked, round(profit_pct - counted, 2)) if locked >= 0.01 else (0.0, 0.0)
 
 
 def execute(ledger: Ledger, broker, rules: Rules, orders: list[dict], prices: dict[str, float], allowed: list[str],
@@ -273,21 +273,16 @@ def execute(ledger: Ledger, broker, rules: Rules, orders: list[dict], prices: di
                     notes.append(f"{coin}: nichts zu verkaufen")
                     continue
                 pos = data["positions"][coin]
-                sell_qty, keep_qty, kept_pct = split_profit(qty, pos["cost"] * qty / pos["qty"], price, step_pct)
-                if sell_qty * price < MIN_ORDER_EUR / 2:  # too small to sell: keep it all as untouched position
-                    notes.append(f"{coin}: Verkaufsanteil zu klein")
-                    continue
-                fill = broker.sell(coin, sell_qty, price)
-                if keep_qty > 0:
-                    fill["kept_qty"] = max(0.0, qty - fill["qty"])
-                    fill["kept_pct"] = kept_pct
+                fill = broker.sell(coin, qty, price)
+                cost = pos["cost"] * min(1.0, fill["qty"] / pos["qty"])
+                fill["locked_eur"], fill["locked_pct"] = profit_lock(fill["eur"] - fill.get("cash_fee", fill["fee"]), cost, step_pct)
             else:
                 total = ledger.value(prices)
                 eur = float(order.get("eur") or 0)
-                cash_free = data["cash"] - total * rules.min_cash_pct / 100
+                cash_free = data["cash"] - ledger.locked - total * rules.min_cash_pct / 100
                 exchange_cash = broker.free("EUR")
                 if exchange_cash is not None:
-                    cash_free = min(cash_free, exchange_cash * 0.995)
+                    cash_free = min(cash_free, exchange_cash * 0.995 - ledger.locked)
                 held_value = data["positions"].get(coin, {}).get("qty", 0.0) * price
                 position_pct = rules.max_position_pct if coin in BIG else min(rules.max_position_pct, rules.max_small_pct)
                 limit = min(cash_free, total * rules.max_trade_pct / 100, total * position_pct / 100 - held_value)
@@ -311,7 +306,7 @@ def execute(ledger: Ledger, broker, rules: Rules, orders: list[dict], prices: di
 
 
 def sell_all(ledger: Ledger, broker, prices: dict[str, float], reason: str, step_pct: float = 0.0) -> list[dict]:
-    """Sell every position (tagged profit coins stay untouched; profit is split like any sale)."""
+    """Sell every position (profit is tagged like with any sale)."""
     orders = [{"action": "sell", "coin": c, "fraction": 1, "reason": reason} for c in ledger.data["positions"]]
     fills, _ = execute(ledger, broker, Rules(0, 0, 0, 0, 0, 0, 0), orders, prices, list(prices), emergency=True,
                        step_pct=step_pct)
