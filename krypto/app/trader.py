@@ -77,7 +77,7 @@ class Ledger:
             "mode": mode, "started": time.time(), "start_value": budget, "cash": budget, "positions": {},
             "halted": False, "halt_reason": "", "last_decision": "", "bench": dict(prices),
             "history": [], "decisions": [], "trades_today": {"day": "", "count": 0},
-            "risk": risk, "stake": budget, "steps": [],
+            "risk": risk, "kept": {}, "tags": [],
         }
         self.save()
 
@@ -91,7 +91,12 @@ class Ledger:
         return bool(self.data)
 
     def value(self, prices: dict[str, float]) -> float:
+        """What the trader works with: cash and coins it may sell (without the tagged profit coins)."""
         return self.data["cash"] + sum(p["qty"] * prices.get(c, 0) for c, p in self.data["positions"].items())
+
+    def kept_value(self, prices: dict[str, float]) -> float:
+        """Tagged profit coins: never sold, counted as profit when the trader is finally stopped."""
+        return sum(k["qty"] * prices.get(c, 0) for c, k in (self.data.get("kept") or {}).items())
 
     def record_trade(self, fill: dict) -> None:
         new = not self.csv.exists()
@@ -112,9 +117,16 @@ class Ledger:
             pos["qty"] += fill["qty"]
             pos["cost"] += fill["eur"] + cash_fee
         else:
-            share = min(1.0, fill["qty"] / pos["qty"]) if pos["qty"] else 1.0
+            kept_qty = fill.get("kept_qty", 0.0)
+            share = min(1.0, (fill["qty"] + kept_qty) / pos["qty"]) if pos["qty"] else 1.0
             pos["cost"] *= 1 - share
-            pos["qty"] -= fill["qty"]
+            pos["qty"] -= fill["qty"] + kept_qty
+            if kept_qty > 0:
+                kept = self.data.setdefault("kept", {}).setdefault(fill["coin"], {"qty": 0.0, "eur": 0.0})
+                kept["qty"] += kept_qty
+                kept["eur"] = round(kept["eur"] + kept_qty * fill["price"], 2)
+                self.data.setdefault("tags", []).append({"t": fill["t"], "coin": fill["coin"], "qty": kept_qty,
+                                                         "eur": round(kept_qty * fill["price"], 2), "pct": fill.get("kept_pct")})
             self.data["cash"] += fill["eur"] - cash_fee
             if pos["qty"] <= 1e-10:
                 del self.data["positions"][fill["coin"]]
@@ -204,8 +216,24 @@ class LiveBroker:
 
 
 # -- risk rules + execution ------------------------------------------------------------
+def split_profit(qty: float, cost: float, price: float, step_pct: float) -> tuple[float, float, float]:
+    """Selling qty coins that cost `cost` in total: only whole profit steps are sold.
+
+    +12 % → sell cost +10 %, keep 2 %; +27 % → sell +20 %, keep 7 %. Returns (sell qty, keep qty, kept %)."""
+    value = qty * price
+    if step_pct <= 0 or cost <= 0 or value <= cost:
+        return qty, 0.0, 0.0
+    profit_pct = round((value / cost - 1) * 100, 6)  # 50 € → 70 € is exactly +40 %
+    counted = int(profit_pct // step_pct) * step_pct
+    sell_qty = min(qty, cost * (1 + counted / 100) / price)
+    keep = qty - sell_qty
+    if keep * price < 0.01:  # nothing worth tagging
+        return qty, 0.0, 0.0
+    return sell_qty, keep, round(profit_pct - counted, 2)
+
+
 def execute(ledger: Ledger, broker, rules: Rules, orders: list[dict], prices: dict[str, float], allowed: list[str],
-            emergency: bool = False) -> tuple[list[dict], list[str]]:
+            emergency: bool = False, step_pct: float = 0.0) -> tuple[list[dict], list[str]]:
     """Check every order against the hard rules, then execute sells before buys.
 
     Returns the fills and notes about orders that were cut down or refused."""
@@ -244,16 +272,19 @@ def execute(ledger: Ledger, broker, rules: Rules, orders: list[dict], prices: di
                 if qty <= 0 or qty * price < MIN_ORDER_EUR / 2:
                     notes.append(f"{coin}: nichts zu verkaufen")
                     continue
-                fill = broker.sell(coin, qty, price)
+                pos = data["positions"][coin]
+                sell_qty, keep_qty, kept_pct = split_profit(qty, pos["cost"] * qty / pos["qty"], price, step_pct)
+                if sell_qty * price < MIN_ORDER_EUR / 2:  # too small to sell: keep it all as untouched position
+                    notes.append(f"{coin}: Verkaufsanteil zu klein")
+                    continue
+                fill = broker.sell(coin, sell_qty, price)
+                if keep_qty > 0:
+                    fill["kept_qty"] = max(0.0, qty - fill["qty"])
+                    fill["kept_pct"] = kept_pct
             else:
                 total = ledger.value(prices)
-                # Only the stake may be used; profit above it stays aside as cash and is never spent.
-                stake = data.get("stake") or total
-                coins_value = total - data["cash"]
-                usable = min(total, stake)
-                total = usable
                 eur = float(order.get("eur") or 0)
-                cash_free = min(data["cash"], stake - coins_value) - usable * rules.min_cash_pct / 100
+                cash_free = data["cash"] - total * rules.min_cash_pct / 100
                 exchange_cash = broker.free("EUR")
                 if exchange_cash is not None:
                     cash_free = min(cash_free, exchange_cash * 0.995)
@@ -279,19 +310,9 @@ def execute(ledger: Ledger, broker, rules: Rules, orders: list[dict], prices: di
     return fills, notes
 
 
-def reserve(ledger: Ledger, prices: dict[str, float]) -> float:
-    """Profit above the stake: set aside, never spent."""
-    return max(0.0, ledger.value(prices) - (ledger.data.get("stake") or 0))
-
-
-def next_stake(stake: float, value: float, step_pct: float) -> float:
-    """The stake grows in whole steps: +10 % counts once reached, +12 % still only counts as +10 %."""
-    while step_pct > 0 and value >= stake * (1 + step_pct / 100):
-        stake = round(stake * (1 + step_pct / 100), 2)
-    return stake
-
-
-def sell_all(ledger: Ledger, broker, prices: dict[str, float], reason: str) -> list[dict]:
+def sell_all(ledger: Ledger, broker, prices: dict[str, float], reason: str, step_pct: float = 0.0) -> list[dict]:
+    """Sell every position (tagged profit coins stay untouched; profit is split like any sale)."""
     orders = [{"action": "sell", "coin": c, "fraction": 1, "reason": reason} for c in ledger.data["positions"]]
-    fills, _ = execute(ledger, broker, Rules(0, 0, 0, 0, 0, 0, 0), orders, prices, list(prices), emergency=True)
+    fills, _ = execute(ledger, broker, Rules(0, 0, 0, 0, 0, 0, 0), orders, prices, list(prices), emergency=True,
+                       step_pct=step_pct)
     return fills

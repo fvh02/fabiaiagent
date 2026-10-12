@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.0
+
+- **Gewinn-Coins statt Einsatz-Automatik:** Kein automatischer Verkauf mehr bei +10 % – Claude
+  verkauft nach eigenem Ermessen. Verkauft er mit Gewinn, wird nur in vollen 10-%-Stufen
+  verkauft (+12 % → 10 % verkauft, 2 % bleiben; +27 % → 20 % / 7 %; +39 % → 30 % / 9 %). Der Rest
+  bleibt als Coin liegen, wird **getaggt** und nie verkauft – auch nicht von Stop-Loss,
+  Verlustgrenze oder Not-Aus. Er zählt zum Gesamtwert und beim endgültigen Stopp zum Gewinn.
+- Verlustgrenze gesamt wieder bezogen auf den Startwert (nur das Handelskapital).
+
 ## 0.4.0
 
 - **Nachrichtenquellen:** Claude bezieht sich auf die Nachrichten der Quellen, die du in den

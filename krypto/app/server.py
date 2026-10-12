@@ -67,7 +67,6 @@ if OPT.get("claude_oauth_token"):
     os.environ["CLAUDE_CODE_OAUTH_TOKEN"] = str(OPT["claude_oauth_token"]).strip()
 BRIDGE_URL = (OPT.get("claude_bridge_url") or "").strip()
 STEP_PCT = float(OPT.get("profit_step_pct") if OPT.get("profit_step_pct") is not None else 10)
-STEP_SELL = OPT.get("profit_step_sell_all", True) is not False
 SOURCES = [str(u).strip() for u in OPT.get("news_sources") or [] if str(u).strip()][:15]
 NEWS_EVERY = 3600
 
@@ -116,7 +115,7 @@ def summary() -> dict:
     d, prices = ledger.data, state["prices"]
     if not d:
         return {"ready": False, "mode": MODE, "error": state["error"]}
-    value = ledger.value(prices) if prices else None
+    value = (ledger.value(prices) + ledger.kept_value(prices)) if prices else None
     holdings = []
     for coin, p in sorted(d["positions"].items()):
         price = prices.get(coin)
@@ -135,9 +134,10 @@ def summary() -> dict:
         "updated": state["updated"], "busy": state["busy"], "error": state["error"],
         "every_hours": EVERY_HOURS, "last_decision": d["last_decision"], "next_decision": next_decision(),
         "auto": AUTO,
-        "stake": d.get("stake"), "reserve": round(trader.reserve(ledger, prices), 2) if prices else None,
-        "next_step": round(d["stake"] * (1 + STEP_PCT / 100), 2) if STEP_PCT and d.get("stake") else None,
-        "step_pct": STEP_PCT, "step_sell": STEP_SELL, "steps": d.get("steps", [])[-10:],
+        "step_pct": STEP_PCT, "trading_value": round(ledger.value(prices), 2) if prices else None,
+        "kept": [{"coin": c, "qty": k["qty"], "eur_tagged": k["eur"],
+                  "value": round(k["qty"] * prices[c], 2) if c in prices else None} for c, k in sorted((d.get("kept") or {}).items())],
+        "kept_value": round(ledger.kept_value(prices), 2) if prices else None, "tags": (d.get("tags") or [])[-10:][::-1],
         "sources": SOURCES, "news": state["news"][:25], "news_status": state["news_status"], "news_at": state["news_at"],
         "rules": rules().__dict__, "risk": risk_level(), "risk_levels": list(trader.RISK_LEVELS),
         "claude": brain.claude_source(BRIDGE_URL),
@@ -158,7 +158,10 @@ async def notify(session: aiohttp.ClientSession, text: str) -> None:
 
 def describe(fill: dict) -> str:
     verb = "Kauf" if fill["side"] == "buy" else "Verkauf"
-    return f"{verb} {fill['coin']} {fmt_eur(fill['eur'])}" + (f" – {fill['reason']}" if fill.get("reason") else "")
+    text = f"{verb} {fill['coin']} {fmt_eur(fill['eur'])}" + (f" – {fill['reason']}" if fill.get("reason") else "")
+    if fill.get("kept_qty"):
+        text += f" · {fmt_eur(fill['kept_qty'] * fill['price'])} ({fill.get('kept_pct', 0):g} %) bleiben als Gewinn-Coins getaggt"
+    return text
 
 
 # -- the work ------------------------------------------------------------------------
@@ -182,6 +185,7 @@ def watched() -> list[str]:
     coins = list(state.get("tradable") or [])
     if ledger.ready:
         coins += [c for c in ledger.data["positions"] if c not in coins]
+        coins += [c for c in (ledger.data.get("kept") or {}) if c not in coins]
         coins += [c for c in (ledger.data.get("bench") or {}) if c not in coins]
     if "BTC" not in coins:
         coins.append("BTC")
@@ -201,9 +205,11 @@ async def refresh() -> None:
         # Benchmark basket: the coins tradable at the start.
         ledger.fresh(MODE, RULES.budget, {c: p for c, p in prices.items() if c in state["tradable"] or c == "BTC"})
         log.info("Neues %s-Konto mit %s", "Echtgeld" if LIVE else "Papier", fmt_eur(RULES.budget))
-    ledger.data.setdefault("stake", ledger.data["start_value"])  # accounts from before 0.4.0
-    ledger.data.setdefault("steps", [])
-    value = ledger.value(state["prices"])
+    ledger.data.setdefault("kept", {})  # accounts from before 0.5.0
+    ledger.data.setdefault("tags", [])
+    for old in ("stake", "steps"):
+        ledger.data.pop(old, None)
+    value = (ledger.value(state["prices"]) + ledger.kept_value(state["prices"]))
     bench = bench_values(state["prices"])
     hist = ledger.data["history"]
     if not hist or time.time() - hist[-1]["t"] >= 3600 - 60 or len(hist) < 2:
@@ -226,15 +232,12 @@ async def check_risk(session) -> None:
     Stop-losses keep protecting the coins even while trading is paused."""
     d, prices = ledger.data, state["prices"]
     value = ledger.value(prices)
-    if not d["halted"] and value <= d["stake"] * (1 - RULES.max_drawdown_pct / 100):
-        fills = await asyncio.to_thread(trader.sell_all, ledger, broker, prices, "Verlustgrenze erreicht")
+    if not d["halted"] and value <= d["start_value"] * (1 - RULES.max_drawdown_pct / 100):
+        fills = await asyncio.to_thread(trader.sell_all, ledger, broker, prices, "Verlustgrenze erreicht", STEP_PCT)
         d["halted"], d["halt_reason"] = True, f"Verlustgrenze −{RULES.max_drawdown_pct:.0f} % erreicht"
         ledger.save()
-        await notify(session, f"🛑 Krypto-Trader gestoppt: Verlustgrenze erreicht ({fmt_eur(value)} bei {fmt_eur(d['stake'])} Einsatz). "
+        await notify(session, f"🛑 Krypto-Trader gestoppt: Verlustgrenze erreicht ({fmt_eur(value)} von {fmt_eur(d['start_value'])}). "
                               f"Alles verkauft ({len(fills)} Orders). Weiter nur, wenn du es freigibst.")
-        return
-    if not d["halted"] and STEP_PCT and value >= d["stake"] * (1 + STEP_PCT / 100):
-        await profit_step(session, value)
         return
     stop = rules().stop_loss_pct
     for coin, p in list(d["positions"].items()):
@@ -242,27 +245,9 @@ async def check_risk(session) -> None:
         if price and p["qty"] and p["qty"] * price <= p["cost"] * (1 - stop / 100):
             fills, notes = await asyncio.to_thread(trader.execute, ledger, broker, rules(),
                                                    [{"action": "sell", "coin": coin, "fraction": 1, "reason": f"Stop-Loss −{stop:.0f} %"}],
-                                                   prices, watched(), True)
+                                                   prices, watched(), True, STEP_PCT)
             if fills:
                 await notify(session, f"⚠️ Stop-Loss: {describe(fills[0])}")
-
-
-async def profit_step(session, value: float) -> None:
-    """Profit step reached: lock it in (sell everything), raise the stake, let Claude decide again from cash."""
-    d, prices = ledger.data, state["prices"]
-    old = d["stake"]
-    new = trader.next_stake(old, value, STEP_PCT)
-    fills = []
-    if STEP_SELL and d["positions"]:
-        fills = await asyncio.to_thread(trader.sell_all, ledger, broker, prices, f"Gewinnstufe +{STEP_PCT:g} % erreicht")
-    d["stake"] = new
-    d.setdefault("steps", []).append({"date": time.strftime("%Y-%m-%d %H:%M"), "from": old, "to": new, "value": round(value, 2)})
-    d["last_decision_ts"] = 0  # decide again right away
-    ledger.save()
-    log.info("Gewinnstufe: Einsatz %s → %s", fmt_eur(old), fmt_eur(new))
-    await notify(session, f"🎯 Krypto-Trader: Gewinnstufe erreicht ({fmt_eur(value)}). "
-                          + (f"Alles verkauft ({len(fills)} Orders), " if fills else "")
-                          + f"Einsatz jetzt {fmt_eur(new)} statt {fmt_eur(old)}. Claude entscheidet neu.")
 
 
 async def refresh_news(session, force: bool = False) -> None:
@@ -293,7 +278,7 @@ async def decide(session, manual: bool = False) -> dict:
     await refresh_news(session, force=True)
     portfolio = {
         "cash_eur": round(d["cash"], 2), "total_eur": round(ledger.value(prices), 2), "start_eur": d["start_value"],
-        "stake_eur": d["stake"], "reserve_eur": round(trader.reserve(ledger, prices), 2),
+        "tagged_profit_coins_eur": round(ledger.kept_value(prices), 2),
         "holdings": {c: {"qty": round(p["qty"], 8), "value_eur": round(p["qty"] * prices.get(c, 0), 2),
                          "cost_eur": round(p["cost"], 2)} for c, p in d["positions"].items()},
     }
@@ -302,9 +287,9 @@ async def decide(session, manual: bool = False) -> dict:
         coins = list(state["tradable"]) + [c for c in d["positions"] if c not in state["tradable"]]
         snapshot = await asyncio.to_thread(market.snapshot, coins)
         state["market"] = snapshot
-        step_text = (f"When the total reaches {d['stake'] * (1 + STEP_PCT / 100):.2f} EUR (+{STEP_PCT:g}% over the stake), the system "
-                     + ("sells everything automatically, " if STEP_SELL else "")
-                     + f"raises the stake by {STEP_PCT:g}% and asks you again.") if STEP_PCT else ""
+        step_text = (f"- Selling with a profit: only whole {STEP_PCT:g}% steps of the profit are sold (e.g. +12% → the cost plus 10% is sold,\n"
+                     f"  the remaining 2% stay as coins). Those leftover coins are tagged as the owner's profit: they are not in your\n"
+                     f"  portfolio, you can never sell them. Sell whenever it makes sense – the split happens automatically.") if STEP_PCT else ""
         web_text = ("Do not search the web: use the news below from the owner's sources." if SOURCES else
                     "You may use web search for important recent news (regulation, hacks, listings, ETF flows, macro) – keep it short.")
         prompt = brain.build_prompt(snapshot, portfolio, {**rules().__dict__, "every_hours": EVERY_HOURS,
@@ -324,7 +309,8 @@ async def decide(session, manual: bool = False) -> dict:
         return {"error": str(err)}
     finally:
         state["busy"] = False
-    fills, notes = await asyncio.to_thread(trader.execute, ledger, broker, rules(), result["orders"], prices, state["tradable"])
+    fills, notes = await asyncio.to_thread(trader.execute, ledger, broker, rules(), result["orders"], prices, state["tradable"],
+                                         False, STEP_PCT)
     by_number = {i["n"]: i for i in state["news"]}
 
     def refs(fill: dict) -> list[dict]:
@@ -335,7 +321,8 @@ async def decide(session, manual: bool = False) -> dict:
         return []
 
     entry = {"date": time.strftime("%Y-%m-%d %H:%M"), "summary": result["summary"], "orders": result["orders"],
-             "fills": [{**{k: f[k] for k in ("side", "coin", "eur", "qty", "price", "reason")}, "news": refs(f)} for f in fills],
+             "fills": [{**{k: f[k] for k in ("side", "coin", "eur", "qty", "price", "reason")}, "news": refs(f),
+                       "kept_qty": f.get("kept_qty", 0.0), "kept_pct": f.get("kept_pct", 0.0)} for f in fills],
              "notes": notes, "manual": manual}
     d["decisions"].append(entry)
     del d["decisions"][:-200]
@@ -352,7 +339,7 @@ async def decide(session, manual: bool = False) -> dict:
 
 def status_line() -> str:
     d, prices = ledger.data, state["prices"]
-    value = ledger.value(prices)
+    value = (ledger.value(prices) + ledger.kept_value(prices))
     bench = bench_values(prices)
     line = f"{'Papier' if d['mode'] == 'paper' else 'ECHT'}: {fmt_eur(value)} ({fmt_pct(pct(value, d['start_value']))})"
     if bench.get("btc"):
@@ -424,7 +411,7 @@ async def api_halt(request: web.Request) -> web.Response:
         fills = []
         if body.get("sell_all"):
             await refresh()
-            fills = await asyncio.to_thread(trader.sell_all, ledger, broker, state["prices"], "Not-Aus")
+            fills = await asyncio.to_thread(trader.sell_all, ledger, broker, state["prices"], "Not-Aus", STEP_PCT)
         ledger.save()
     await notify(request.app["http"], "⏸️ Krypto-Trader gestoppt" + (f", alles verkauft ({len(fills)} Orders)." if body.get("sell_all") else "."))
     return web.json_response({"halted": True, "sold": len(fills)})
@@ -436,7 +423,7 @@ async def api_resume(request: web.Request) -> web.Response:
         d = ledger.data
         if d.get("halt_reason", "").startswith("Verlustgrenze"):
             # After the loss limit: continue from today's value as the new start.
-            d["start_value"] = d["stake"] = round(ledger.value(state["prices"]), 2)
+            d["start_value"] = round(ledger.value(state["prices"]), 2)
         d["halted"], d["halt_reason"] = False, ""
         ledger.save()
     await notify(request.app["http"], "▶️ Krypto-Trader läuft wieder.")

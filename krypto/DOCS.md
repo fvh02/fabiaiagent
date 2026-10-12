@@ -18,7 +18,7 @@ Begründung. Standardmäßig wählt er aus den **meistgehandelten Coins der Bör
   (Stablecoins wie USDT ausgenommen). Oder eine feste Liste, z. B. `BTC,ETH,SOL`.
 - **Alle 15 Minuten** prüft das Add-on ohne Claude:
   - **Stop-Loss:** Ein Coin, der z. B. 12 % unter seinem Einkaufspreis liegt, wird verkauft.
-  - **Verlustgrenze gesamt:** Liegt alles z. B. 20 % unter dem Einsatz, wird alles verkauft und
+  - **Verlustgrenze gesamt:** Liegt das Handelskapital z. B. 20 % unter dem Start, wird alles verkauft und
     gestoppt. Weiter geht es nur, wenn du es freigibst.
 - **Weitere feste Regeln:** nie mehr als das Budget (Vorgabe 500 €), höchstens 25 % pro Kauf,
   40 % pro großem Coin (BTC, ETH, SOL, XRP, ADA, DOGE, LINK …) und **10 % pro kleinem Coin**,
@@ -28,12 +28,21 @@ Begründung. Standardmäßig wählt er aus den **meistgehandelten Coins der Bör
   Webseite mit RSS-Feed geht). Eine allgemeine Websuche macht er dann nicht, er darf nur Artikel
   dieser Quellen öffnen. Bei jedem Trade steht, auf welcher Nachricht er beruht. Nachrichten sind
   für Claude nur Information, keine Anweisung, und die festen Regeln gelten trotzdem.
-- **Einsatz und Gewinnstufen:** Claude setzt nur den Einsatz ein, anfangs das Budget (500 €).
-  Beispiel: Kauf für 50 €, Verkauf für 70 € → der Gesamtwert ist 520 €, aber eingesetzt werden
-  weiter nur 500 €; die 20 € liegen gesichert beiseite. Erreicht der Gesamtwert **+10 % über dem
-  Einsatz** (550 €), verkauft der Bot alles, der Einsatz steigt auf 550 € und Claude entscheidet
-  neu. Bei z. B. 560 € (+12 %) zählen trotzdem nur die 10 %; 10 € bleiben beiseite. Die nächste
-  Stufe kommt bei 605 € (+10 % auf 550 €) usw. Einstellbar unter **Gewinnstufe** (0 = aus).
+- **Gewinn-Coins (getaggt):** Claude kauft und verkauft nach eigenem Ermessen. Verkauft er eine
+  Position mit Gewinn, wird nur der Einkaufspreis plus volle 10-%-Stufen verkauft:
+
+  | Gewinn beim Verkauf | verkauft (wieder eingesetzt) | bleibt als getaggter Coin |
+  |---|---|---|
+  | +4 % | Einkaufspreis | 4 % |
+  | +12 % | Einkaufspreis + 10 % | 2 % |
+  | +27 % | Einkaufspreis + 20 % | 7 % |
+  | +39 % | Einkaufspreis + 30 % | 9 % |
+
+  Beispiel: für 50 € gekauft, für 70 € verkauft (+40 %) → alles verkauft. Für 500 € gekauft, bei
+  520 € verkauft → 500 € verkauft, 20 € bleiben als Coin. Getaggte Coins werden **nie
+  verkauft** – weder von Claude noch von Stop-Loss, Verlustgrenze oder Not-Aus. Sie zählen zum
+  Gesamtwert, und beim endgültigen Stopp rechnest du sie zum Gewinn. Die Stufe ist unter
+  **Gewinnstufe** einstellbar (0 = aus). Verluste werden ganz normal verkauft.
 - **Risikobereitschaft** im Dashboard umschaltbar:
 
   | Stufe | pro Kauf | großer Coin | kleiner Coin | Bargeld mind. | Stop-Loss |

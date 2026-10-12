@@ -87,9 +87,8 @@ Hard rules enforced by the system (orders beyond them are cut down or refused):
   one coin marked (small) at most {rules['max_small_pct']:g}% of the total value
 - Always keep at least {rules['min_cash_pct']:g}% in cash; minimum order 10 EUR; at most {rules['max_orders_day']} orders per day
 - Automatic stop-loss: a coin is sold when it is {rules['stop_loss_pct']:g}% below its average buy price (checked every few minutes)
-- Everything stops when the portfolio is {rules['max_drawdown_pct']:g}% below the stake
-- Stake: you may only use {portfolio['stake_eur']:g} EUR (cash plus coins); profit above it
-  ({portfolio['reserve_eur']:g} EUR now) is set aside and cannot be spent. {rules['step_text']}
+- Everything stops when the portfolio is {rules['max_drawdown_pct']:g}% below its start value
+{rules['step_text']}
 
 Risk appetite: {rules.get('risk_hint') or 'balanced'}
 

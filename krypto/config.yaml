@@ -1,5 +1,5 @@
 name: Krypto-Trader
-version: "0.4.0"
+version: "0.5.0"
 slug: krypto
 description: Claude handelt alle paar Stunden Kryptowährungen mit deinem Budget – zuerst nur auf Papier, mit festen Verlustgrenzen
 url: https://github.com/fvh02/fabiaiagent
@@ -26,7 +26,6 @@ options:
     - https://decrypt.co/feed
     - https://www.btc-echo.de/feed/
   profit_step_pct: 10
-  profit_step_sell_all: true
   auto_top: 40
   min_volume_eur: 250000
   decision_every_hours: 3
@@ -57,7 +56,6 @@ schema:
   news_sources:
     - str
   profit_step_pct: int(0,100)
-  profit_step_sell_all: bool
   auto_top: int(5,100)
   min_volume_eur: float(0,)
   decision_every_hours: int(1,24)
