@@ -5,13 +5,15 @@ Other add-ons cannot share the claude.ai login (two devices with the same login 
 out), so they send their prompt here instead. Only plain questions are possible: the bridge itself
 builds the command and allows no tools except web search, in an empty working directory.
 
-POST /ask  {"prompt": str, "schema": object?, "web": bool?, "max_turns": int?, "model": str?}
+POST /ask  {"prompt": str, "schema": object?, "web": bool?, "fetch_domains": [str]?, "max_turns": int?, "model": str?}
+"web" allows web search and fetching any page; "fetch_domains" only allows fetching pages of those domains.
 Header X-Bridge-Key must match the key the gateway writes to /share/claude-bridge/key.
 Answers with Claude Code's JSON result.
 """
 
 import hmac
 import json
+import re
 import os
 import subprocess
 import tempfile
@@ -22,6 +24,7 @@ PORT = int(os.environ.get("CLAUDE_BRIDGE_PORT", "8093"))
 KEY = os.environ.get("CLAUDE_BRIDGE_KEY", "")
 TIMEOUT = 900
 MAX_PROMPT = 200_000
+DOMAIN = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,62}\.)+[a-z]{2,24}$")
 lock = threading.Lock()  # one question at a time
 
 
@@ -58,6 +61,10 @@ class Handler(BaseHTTPRequestHandler):
             cmd += ["--json-schema", json.dumps(req["schema"])]
         if req.get("web"):
             cmd += ["--allowedTools", "WebSearch", "WebFetch"]
+        elif isinstance(req.get("fetch_domains"), list):
+            domains = [d for d in (str(x).lower() for x in req["fetch_domains"][:20]) if DOMAIN.match(d)]
+            if domains:
+                cmd += ["--allowedTools"] + [f"WebFetch(domain:{d})" for d in domains]
         if req.get("model"):
             cmd += ["--model", str(req["model"])[:60]]
         with lock, tempfile.TemporaryDirectory() as workdir:

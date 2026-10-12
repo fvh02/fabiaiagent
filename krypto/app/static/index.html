@@ -62,6 +62,20 @@
     .risk button.on { background: linear-gradient(135deg, var(--a), var(--b)); color: #fff; }
     .risk button.on small { color: rgba(255,255,255,.85); }
     .riskinfo { margin: 10px 0 0; font-size: .88rem; color: var(--muted); line-height: 1.45; }
+    .stakebar { height: 10px; border-radius: 999px; background: var(--glass2); border: 1px solid var(--line); overflow: hidden; margin: 10px 0 6px; }
+    .stakebar i { display: block; height: 100%; background: linear-gradient(90deg, var(--a), var(--b)); border-radius: 999px; }
+    .muted { color: var(--muted); font-size: .88rem; line-height: 1.45; }
+    .news { display: grid; gap: 10px; }
+    .news a, .dec a { color: var(--text); text-decoration: none; }
+    .news a:hover, .dec a:hover { text-decoration: underline; }
+    .news .item { padding-top: 10px; border-top: 1px solid var(--line); }
+    .news .item:first-child { border-top: 0; padding-top: 0; }
+    .news .meta { font-size: .75rem; color: var(--muted); font-weight: 700; }
+    .chip { display: inline-block; font-size: .7rem; font-weight: 800; padding: 2px 7px; border-radius: 999px; background: var(--glass2); border: 1px solid var(--line); margin-left: 4px; }
+    .src { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+    .src span { font-size: .75rem; padding: 3px 9px; border-radius: 999px; border: 1px solid var(--line); background: var(--glass2); overflow-wrap: anywhere; }
+    .src span.bad { border-color: rgba(251,113,133,.6); color: var(--bad); }
+    .dec .newsref { font-size: .82rem; color: var(--muted); margin-top: 2px; }
     .alert.bad { background: rgba(251,113,133,.15); border: 1px solid rgba(251,113,133,.5); }
   </style>
 </head>
@@ -83,6 +97,9 @@
     <div class="kpi glass"><small>Alle Coins gleich halten</small><b id="kBasket">–</b></div>
     <div class="kpi glass"><small>Bargeld</small><b id="kCash">–</b></div>
   </section>
+  <section class="card glass"><h2>Einsatz &amp; Gewinnstufe</h2>
+    <div id="stake" class="muted">–</div>
+  </section>
   <section class="card glass">
     <h2>Verlauf</h2>
     <svg class="chart" id="chart" viewBox="0 0 800 220" preserveAspectRatio="none"></svg>
@@ -97,6 +114,9 @@
     <p class="riskinfo" id="riskInfo"></p>
   </section>
   <section class="card glass"><h2>Bestand</h2><div id="holdings"></div></section>
+  <section class="card glass" id="newsCard" hidden><h2>Nachrichten aus deinen Quellen</h2>
+    <div class="src" id="sources"></div><div class="news" id="news"></div>
+  </section>
   <section class="card glass"><h2>Entscheidungen von Claude</h2><div id="decisions"></div></section>
   <section class="card glass"><h2>Regeln</h2><div id="rules" class="empty"></div></section>
 </main>
@@ -139,8 +159,22 @@
     $("holdings").innerHTML = s.holdings.length ? `<table><tr><th>Coin</th><th>Menge</th><th>Einstand</th><th>Wert</th><th>±</th></tr>${s.holdings.map(h => `
       <tr><td><b>${esc(h.coin)}</b></td><td>${h.qty.toLocaleString("de-DE", h.qty >= 1000 ? { notation: "compact", maximumFractionDigits: 2 } : { maximumSignificantDigits: 5 })}</td><td>${eur(h.cost)}</td><td>${eur(h.value)}</td>
       <td class="${cls(h.pnl_pct)}">${pc(h.pnl_pct)}</td></tr>`).join("")}</table>` : `<p class="empty">Gerade alles in Bargeld (${eur(s.cash)}).</p>`;
+    if (s.stake) {
+      const fill = s.next_step ? Math.max(0, Math.min(100, (s.value - s.stake) / (s.next_step - s.stake) * 100)) : 0;
+      $("stake").innerHTML = `Claude setzt <b>${eur(s.stake)}</b> ein${s.reserve > 0 ? ` · <b>${eur(s.reserve)}</b> Gewinn liegt gesichert beiseite` : ""}.
+        ${s.next_step ? `<div class="stakebar"><i style="width:${fill.toFixed(1)}%"></i></div>
+        Nächste Gewinnstufe bei <b>${eur(s.next_step)}</b> (+${s.step_pct} %): ${s.step_sell ? "dann wird alles verkauft, " : ""}der Einsatz steigt auf ${eur(s.next_step)} und Claude entscheidet neu.` : ""}
+        ${s.steps.length ? `<br>Erreichte Stufen: ${s.steps.map(t => `${esc(t.date.slice(5, 10).split("-").reverse().join("."))} ${eur(t.from)} → ${eur(t.to)}`).join(" · ")}` : ""}`;
+    }
+    const link = (n, body) => /^https?:\/\//.test(n.link || "") ? `<a href="${esc(n.link)}" target="_blank" rel="noopener noreferrer">${body}</a>` : body;
+    $("newsCard").hidden = !s.sources.length;
+    $("sources").innerHTML = s.sources.map(u => { const st = s.news_status[u]; let host = u; try { host = new URL(u.includes("://") ? u : "https://" + u).hostname.replace(/^www\./, ""); } catch {}
+      return `<span class="${st && !st.ok ? "bad" : ""}" title="${esc(st && !st.ok ? st.error : u)}">${esc(host)}${st ? (st.ok ? ` · ${st.count}` : " · Fehler") : ""}</span>`; }).join("");
+    $("news").innerHTML = s.news.length ? s.news.slice(0, 12).map(n => `<div class="item"><div class="meta">${esc(n.source)}${n.ts ? " · " + new Date(n.ts * 1000).toLocaleString("de-DE", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : ""}${(n.coins || []).map(c => `<span class="chip">${esc(c)}</span>`).join("")}</div>
+      ${link(n, `<b>${esc(n.title)}</b>`)}</div>`).join("") : `<p class="empty">${s.news_at ? "Gerade keine frischen Nachrichten." : "Nachrichten werden geladen …"}</p>`;
     $("decisions").innerHTML = s.decisions.length ? s.decisions.map(d => `<div class="dec"><div class="when">${esc(d.date)}${d.manual ? " · von Hand" : ""}</div>
-      <p>${esc(d.summary)}</p><ul>${(d.fills || []).map(f => `<li>${f.side === "buy" ? "Kauf" : "Verkauf"} <b>${esc(f.coin)}</b> ${eur(f.eur)} – ${esc(f.reason)}</li>`).join("") || "<li class='empty'>keine Trades</li>"}
+      <p>${esc(d.summary)}</p><ul>${(d.fills || []).map(f => `<li>${f.side === "buy" ? "Kauf" : "Verkauf"} <b>${esc(f.coin)}</b> ${eur(f.eur)} – ${esc(f.reason)}
+        ${(f.news || []).map(n => `<div class="newsref">📰 ${esc(n.source)}: ${link(n, esc(n.title))}</div>`).join("")}</li>`).join("") || "<li class='empty'>keine Trades</li>"}
       ${(d.notes || []).map(n => `<li class="note">${esc(n)}</li>`).join("")}</ul></div>`).join("") : `<p class="empty">Claude entscheidet alle ${s.every_hours} Stunden${s.next_decision ? ` – das nächste Mal gegen ${new Date(s.next_decision * 1000).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })} Uhr` : ""}.</p>`;
     const r = s.rules;
     document.querySelectorAll("#risk button").forEach(b => { b.classList.toggle("on", b.dataset.level === s.risk); b.disabled = riskBusy; });
@@ -149,7 +183,7 @@
     $("rules").innerHTML = `Budget ${eur(r.budget)} · Entscheidung alle ${s.every_hours} h (nächste ${next} Uhr) · Börse ${esc(s.exchange)}<br>
       ${s.auto ? `Automatisch ${s.coins.length} meistgehandelte Coins: ` : ""}${esc(s.coins.join(", "))}<br>
       Pro Kauf max. ${r.max_trade_pct} %, großer Coin max. ${r.max_position_pct} %, kleiner Coin max. ${r.max_small_pct} %, mind. ${r.min_cash_pct} % Bargeld ·
-      Stop-Loss −${r.stop_loss_pct} % · Gesamtstopp bei −${r.max_drawdown_pct} % · ${s.mode === "paper" ? `simulierte Gebühr ${r.fee_pct} %` : "echte Gebühren"}`;
+      Stop-Loss −${r.stop_loss_pct} % · Gesamtstopp bei −${r.max_drawdown_pct} % vom Einsatz · ${s.mode === "paper" ? `simulierte Gebühr ${r.fee_pct} %` : "echte Gebühren"}`;
   }
   $("decideBtn").onclick = async () => { $("decideBtn").disabled = true; $("decideBtn").textContent = "Claude denkt nach …"; await fetch("api/decide", { method: "POST" }); load(); };
   $("haltBtn").onclick = async () => {

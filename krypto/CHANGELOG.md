@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.4.0
+
+- **Nachrichtenquellen:** Claude bezieht sich auf die Nachrichten der Quellen, die du in den
+  Optionen einträgst (RSS-Feeds oder Webseiten mit Feed; vorgegeben CoinDesk, Cointelegraph,
+  Decrypt, BTC-ECHO), und kauft bzw. verkauft die passenden Coins. Statt allgemeiner Websuche
+  darf er nur Artikel dieser Quellen öffnen. Jeder Trade zeigt die Nachricht, auf der er beruht
+  (Dashboard und iMessage); das Dashboard zeigt die aktuellen Schlagzeilen und ob jede Quelle geht.
+- **Einsatz und Gewinnstufen:** Claude setzt nur den Einsatz ein (anfangs das Budget, 500 €).
+  Gewinn darüber liegt gesichert beiseite. Bei +10 % über dem Einsatz verkauft der Bot alles, der
+  Einsatz steigt um genau 10 % (bei +12 % zählen nur 10 %), und Claude entscheidet neu.
+- Die Verlustgrenze gesamt bezieht sich jetzt auf den Einsatz.
+
 ## 0.3.0
 
 - **Risikobereitschaft** im Dashboard: Vorsichtig, Ausgewogen oder Mutig. Die Stufe stellt die

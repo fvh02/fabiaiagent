@@ -8,6 +8,15 @@ configuration:
   coins:
     name: Coins
     description: auto = die meistgehandelten Coins der Börse (auch kleine). Oder eine feste Liste mit Komma, z. B. BTC,ETH,SOL.
+  news_sources:
+    name: Nachrichtenquellen
+    description: RSS-Feeds oder Webseiten (mit Feed), auf deren Nachrichten sich Claude bezieht. Claude liest nur diese Quellen, keine allgemeine Websuche. Liste leer = Claude darf frei im Web suchen.
+  profit_step_pct:
+    name: Gewinnstufe (%)
+    description: Claude setzt nur den Einsatz (anfangs das Budget) ein; Gewinn darüber bleibt beiseite. Erreicht der Gesamtwert +so viel Prozent über dem Einsatz, steigt der Einsatz um genau diese Prozent (bei +12 % zählen nur 10 %). 0 = aus.
+  profit_step_sell_all:
+    name: Bei Gewinnstufe alles verkaufen
+    description: An der Gewinnstufe verkauft der Bot alles und Claude entscheidet danach neu aus dem Bargeld.
   auto_top:
     name: Anzahl Coins (auto)
     description: Bei „auto“ werden so viele der meistgehandelten Coins betrachtet.
@@ -43,7 +52,7 @@ configuration:
     description: Ein Coin wird automatisch verkauft, wenn er so viel unter dem Einkaufspreis liegt (stündlich geprüft).
   max_drawdown_pct:
     name: Verlustgrenze gesamt (%)
-    description: Liegt der Gesamtwert so viel unter dem Start, wird alles verkauft und das Trading gestoppt.
+    description: Liegt der Gesamtwert so viel unter dem Einsatz, wird alles verkauft und das Trading gestoppt.
   fee_pct:
     name: Gebühr Papertrading (%)
     description: Simulierte Gebühr pro Trade, damit das Papertrading realistisch bleibt.

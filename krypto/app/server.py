@@ -17,6 +17,7 @@ import aiohttp
 from aiohttp import web
 
 import brain
+import news
 import trader
 from market import Market, MarketError, make_exchange
 
@@ -65,8 +66,12 @@ NOTIFY_TO = (OPT.get("imessage_to") or "").strip()
 if OPT.get("claude_oauth_token"):
     os.environ["CLAUDE_CODE_OAUTH_TOKEN"] = str(OPT["claude_oauth_token"]).strip()
 BRIDGE_URL = (OPT.get("claude_bridge_url") or "").strip()
+STEP_PCT = float(OPT.get("profit_step_pct") if OPT.get("profit_step_pct") is not None else 10)
+STEP_SELL = OPT.get("profit_step_sell_all", True) is not False
+SOURCES = [str(u).strip() for u in OPT.get("news_sources") or [] if str(u).strip()][:15]
+NEWS_EVERY = 3600
 
-state = {"market": {}, "prices": {}, "updated": 0.0, "busy": False, "error": ""}
+state = {"market": {}, "prices": {}, "updated": 0.0, "busy": False, "error": "", "news": [], "news_status": {}, "news_at": 0.0}
 lock = asyncio.Lock()
 ledger = trader.Ledger(DATA)
 market: Market | None = None
@@ -130,6 +135,10 @@ def summary() -> dict:
         "updated": state["updated"], "busy": state["busy"], "error": state["error"],
         "every_hours": EVERY_HOURS, "last_decision": d["last_decision"], "next_decision": next_decision(),
         "auto": AUTO,
+        "stake": d.get("stake"), "reserve": round(trader.reserve(ledger, prices), 2) if prices else None,
+        "next_step": round(d["stake"] * (1 + STEP_PCT / 100), 2) if STEP_PCT and d.get("stake") else None,
+        "step_pct": STEP_PCT, "step_sell": STEP_SELL, "steps": d.get("steps", [])[-10:],
+        "sources": SOURCES, "news": state["news"][:25], "news_status": state["news_status"], "news_at": state["news_at"],
         "rules": rules().__dict__, "risk": risk_level(), "risk_levels": list(trader.RISK_LEVELS),
         "claude": brain.claude_source(BRIDGE_URL),
     }
@@ -192,6 +201,8 @@ async def refresh() -> None:
         # Benchmark basket: the coins tradable at the start.
         ledger.fresh(MODE, RULES.budget, {c: p for c, p in prices.items() if c in state["tradable"] or c == "BTC"})
         log.info("Neues %s-Konto mit %s", "Echtgeld" if LIVE else "Papier", fmt_eur(RULES.budget))
+    ledger.data.setdefault("stake", ledger.data["start_value"])  # accounts from before 0.4.0
+    ledger.data.setdefault("steps", [])
     value = ledger.value(state["prices"])
     bench = bench_values(state["prices"])
     hist = ledger.data["history"]
@@ -215,12 +226,15 @@ async def check_risk(session) -> None:
     Stop-losses keep protecting the coins even while trading is paused."""
     d, prices = ledger.data, state["prices"]
     value = ledger.value(prices)
-    if not d["halted"] and value <= d["start_value"] * (1 - RULES.max_drawdown_pct / 100):
+    if not d["halted"] and value <= d["stake"] * (1 - RULES.max_drawdown_pct / 100):
         fills = await asyncio.to_thread(trader.sell_all, ledger, broker, prices, "Verlustgrenze erreicht")
         d["halted"], d["halt_reason"] = True, f"Verlustgrenze −{RULES.max_drawdown_pct:.0f} % erreicht"
         ledger.save()
-        await notify(session, f"🛑 Krypto-Trader gestoppt: Verlustgrenze erreicht ({fmt_eur(value)} von {fmt_eur(d['start_value'])}). "
+        await notify(session, f"🛑 Krypto-Trader gestoppt: Verlustgrenze erreicht ({fmt_eur(value)} bei {fmt_eur(d['stake'])} Einsatz). "
                               f"Alles verkauft ({len(fills)} Orders). Weiter nur, wenn du es freigibst.")
+        return
+    if not d["halted"] and STEP_PCT and value >= d["stake"] * (1 + STEP_PCT / 100):
+        await profit_step(session, value)
         return
     stop = rules().stop_loss_pct
     for coin, p in list(d["positions"].items()):
@@ -233,13 +247,53 @@ async def check_risk(session) -> None:
                 await notify(session, f"⚠️ Stop-Loss: {describe(fills[0])}")
 
 
+async def profit_step(session, value: float) -> None:
+    """Profit step reached: lock it in (sell everything), raise the stake, let Claude decide again from cash."""
+    d, prices = ledger.data, state["prices"]
+    old = d["stake"]
+    new = trader.next_stake(old, value, STEP_PCT)
+    fills = []
+    if STEP_SELL and d["positions"]:
+        fills = await asyncio.to_thread(trader.sell_all, ledger, broker, prices, f"Gewinnstufe +{STEP_PCT:g} % erreicht")
+    d["stake"] = new
+    d.setdefault("steps", []).append({"date": time.strftime("%Y-%m-%d %H:%M"), "from": old, "to": new, "value": round(value, 2)})
+    d["last_decision_ts"] = 0  # decide again right away
+    ledger.save()
+    log.info("Gewinnstufe: Einsatz %s → %s", fmt_eur(old), fmt_eur(new))
+    await notify(session, f"🎯 Krypto-Trader: Gewinnstufe erreicht ({fmt_eur(value)}). "
+                          + (f"Alles verkauft ({len(fills)} Orders), " if fills else "")
+                          + f"Einsatz jetzt {fmt_eur(new)} statt {fmt_eur(old)}. Claude entscheidet neu.")
+
+
+async def refresh_news(session, force: bool = False) -> None:
+    if not SOURCES or (not force and time.time() - state["news_at"] < NEWS_EVERY):
+        return
+    coins = list(state.get("tradable") or []) + [c for c in ledger.data.get("positions", {}) if c not in (state.get("tradable") or [])]
+    try:
+        items, status = await news.collect(session, SOURCES, coins)
+    except Exception as err:  # news are a bonus: never let them stop trading
+        log.warning("Nachrichten: %s", err)
+        return
+    state.update(news=items, news_status=status, news_at=time.time())
+
+
+def news_domains() -> list[str] | None:
+    """Pages Claude may open: only the news sources (None = no sources chosen, web search allowed)."""
+    if not SOURCES:
+        return None
+    found = {news.domain(u) for u in SOURCES} | {news.domain(i["link"]) for i in state["news"] if i.get("link")}
+    return sorted(d for d in found if d)[:20]
+
+
 async def decide(session, manual: bool = False) -> dict:
     d = ledger.data
     if d["halted"]:
         return {"error": "Trading ist gestoppt"}
     prices = state["prices"]
+    await refresh_news(session, force=True)
     portfolio = {
         "cash_eur": round(d["cash"], 2), "total_eur": round(ledger.value(prices), 2), "start_eur": d["start_value"],
+        "stake_eur": d["stake"], "reserve_eur": round(trader.reserve(ledger, prices), 2),
         "holdings": {c: {"qty": round(p["qty"], 8), "value_eur": round(p["qty"] * prices.get(c, 0), 2),
                          "cost_eur": round(p["cost"], 2)} for c, p in d["positions"].items()},
     }
@@ -248,10 +302,16 @@ async def decide(session, manual: bool = False) -> dict:
         coins = list(state["tradable"]) + [c for c in d["positions"] if c not in state["tradable"]]
         snapshot = await asyncio.to_thread(market.snapshot, coins)
         state["market"] = snapshot
+        step_text = (f"When the total reaches {d['stake'] * (1 + STEP_PCT / 100):.2f} EUR (+{STEP_PCT:g}% over the stake), the system "
+                     + ("sells everything automatically, " if STEP_SELL else "")
+                     + f"raises the stake by {STEP_PCT:g}% and asks you again.") if STEP_PCT else ""
+        web_text = ("Do not search the web: use the news below from the owner's sources." if SOURCES else
+                    "You may use web search for important recent news (regulation, hacks, listings, ETF flows, macro) – keep it short.")
         prompt = brain.build_prompt(snapshot, portfolio, {**rules().__dict__, "every_hours": EVERY_HOURS,
-                                    "big": sorted(trader.BIG), "risk_hint": trader.RISK_HINTS[risk_level()]},
-                                    d["decisions"], d["mode"], list(d["positions"]))
-        result = await asyncio.to_thread(brain.decide, prompt, MODEL, BRIDGE_URL)
+                                    "big": sorted(trader.BIG), "risk_hint": trader.RISK_HINTS[risk_level()],
+                                    "step_text": step_text, "web_text": web_text},
+                                    d["decisions"], d["mode"], list(d["positions"]), state["news"], SOURCES)
+        result = await asyncio.to_thread(brain.decide, prompt, MODEL, BRIDGE_URL, news_domains())
     except brain.BrainError as err:
         d["decisions"].append({"date": time.strftime("%Y-%m-%d %H:%M"), "summary": f"Keine Entscheidung: {err}", "fills": [], "notes": []})
         ledger.save()
@@ -265,16 +325,27 @@ async def decide(session, manual: bool = False) -> dict:
     finally:
         state["busy"] = False
     fills, notes = await asyncio.to_thread(trader.execute, ledger, broker, rules(), result["orders"], prices, state["tradable"])
+    by_number = {i["n"]: i for i in state["news"]}
+
+    def refs(fill: dict) -> list[dict]:
+        """The news the order behind this fill relied on."""
+        for o in result["orders"]:
+            if str(o.get("coin", "")).upper() == fill["coin"] and o.get("action") == fill["side"]:
+                return [{k: by_number[n][k] for k in ("title", "link", "source")} for n in o.get("news", []) if n in by_number]
+        return []
+
     entry = {"date": time.strftime("%Y-%m-%d %H:%M"), "summary": result["summary"], "orders": result["orders"],
-             "fills": [{k: f[k] for k in ("side", "coin", "eur", "qty", "price", "reason")} for f in fills], "notes": notes,
-             "manual": manual}
+             "fills": [{**{k: f[k] for k in ("side", "coin", "eur", "qty", "price", "reason")}, "news": refs(f)} for f in fills],
+             "notes": notes, "manual": manual}
     d["decisions"].append(entry)
     del d["decisions"][:-200]
     d["last_decision"] = time.strftime("%Y-%m-%d %H:%M")
     d["last_decision_ts"] = time.time()
     ledger.save()
     if fills:  # every few hours: only write when something was actually traded
-        await notify(session, "\n".join([f"💱 Krypto-Trader: {result['summary']}"] + ["• " + describe(f) for f in fills]
+        await notify(session, "\n".join([f"💱 Krypto-Trader: {result['summary']}"]
+                                         + ["• " + describe(f) + "".join(f"\n  📰 {n['source']}: {n['title']}" for n in e["news"][:2])
+                                            for f, e in zip(fills, entry["fills"])]
                                          + [status_line()]))
     return entry
 
@@ -308,6 +379,7 @@ async def loop(app: web.Application) -> None:
         try:
             async with lock:
                 await refresh()
+                await refresh_news(session)
                 await check_risk(session)
                 if not ledger.data["halted"] and time.time() >= (next_decision() or 0):
                     await decide(session)
@@ -364,7 +436,7 @@ async def api_resume(request: web.Request) -> web.Response:
         d = ledger.data
         if d.get("halt_reason", "").startswith("Verlustgrenze"):
             # After the loss limit: continue from today's value as the new start.
-            d["start_value"] = round(ledger.value(state["prices"]), 2)
+            d["start_value"] = d["stake"] = round(ledger.value(state["prices"]), 2)
         d["halted"], d["halt_reason"] = False, ""
         ledger.save()
     await notify(request.app["http"], "▶️ Krypto-Trader läuft wieder.")

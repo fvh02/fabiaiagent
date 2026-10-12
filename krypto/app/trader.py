@@ -77,7 +77,7 @@ class Ledger:
             "mode": mode, "started": time.time(), "start_value": budget, "cash": budget, "positions": {},
             "halted": False, "halt_reason": "", "last_decision": "", "bench": dict(prices),
             "history": [], "decisions": [], "trades_today": {"day": "", "count": 0},
-            "risk": risk,
+            "risk": risk, "stake": budget, "steps": [],
         }
         self.save()
 
@@ -247,8 +247,13 @@ def execute(ledger: Ledger, broker, rules: Rules, orders: list[dict], prices: di
                 fill = broker.sell(coin, qty, price)
             else:
                 total = ledger.value(prices)
+                # Only the stake may be used; profit above it stays aside as cash and is never spent.
+                stake = data.get("stake") or total
+                coins_value = total - data["cash"]
+                usable = min(total, stake)
+                total = usable
                 eur = float(order.get("eur") or 0)
-                cash_free = data["cash"] - total * rules.min_cash_pct / 100
+                cash_free = min(data["cash"], stake - coins_value) - usable * rules.min_cash_pct / 100
                 exchange_cash = broker.free("EUR")
                 if exchange_cash is not None:
                     cash_free = min(cash_free, exchange_cash * 0.995)
@@ -272,6 +277,18 @@ def execute(ledger: Ledger, broker, rules: Rules, orders: list[dict], prices: di
             counter["count"] += 1
     ledger.save()
     return fills, notes
+
+
+def reserve(ledger: Ledger, prices: dict[str, float]) -> float:
+    """Profit above the stake: set aside, never spent."""
+    return max(0.0, ledger.value(prices) - (ledger.data.get("stake") or 0))
+
+
+def next_stake(stake: float, value: float, step_pct: float) -> float:
+    """The stake grows in whole steps: +10 % counts once reached, +12 % still only counts as +10 %."""
+    while step_pct > 0 and value >= stake * (1 + step_pct / 100):
+        stake = round(stake * (1 + step_pct / 100), 2)
+    return stake
 
 
 def sell_all(ledger: Ledger, broker, prices: dict[str, float], reason: str) -> list[dict]:

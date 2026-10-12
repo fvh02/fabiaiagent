@@ -52,7 +52,7 @@ def main(argv: list[str]) -> None:
             out(s)
             return
         out({k: s.get(k) for k in ("mode", "halted", "halt_reason", "value", "pnl_pct", "start_value", "cash",
-                                    "btc_hold", "basket_hold", "holdings", "last_decision", "risk", "error")})
+                                    "btc_hold", "basket_hold", "holdings", "last_decision", "risk", "stake", "reserve", "next_step", "error")})
     elif cmd == "verlauf":
         n = int(argv[1]) if len(argv) > 1 and argv[1].isdigit() else 3
         s = call("GET", "/api/status")

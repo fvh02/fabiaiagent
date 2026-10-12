@@ -18,11 +18,22 @@ Begründung. Standardmäßig wählt er aus den **meistgehandelten Coins der Bör
   (Stablecoins wie USDT ausgenommen). Oder eine feste Liste, z. B. `BTC,ETH,SOL`.
 - **Alle 15 Minuten** prüft das Add-on ohne Claude:
   - **Stop-Loss:** Ein Coin, der z. B. 12 % unter seinem Einkaufspreis liegt, wird verkauft.
-  - **Verlustgrenze gesamt:** Liegt alles z. B. 20 % unter dem Start, wird alles verkauft und
+  - **Verlustgrenze gesamt:** Liegt alles z. B. 20 % unter dem Einsatz, wird alles verkauft und
     gestoppt. Weiter geht es nur, wenn du es freigibst.
 - **Weitere feste Regeln:** nie mehr als das Budget (Vorgabe 500 €), höchstens 25 % pro Kauf,
   40 % pro großem Coin (BTC, ETH, SOL, XRP, ADA, DOGE, LINK …) und **10 % pro kleinem Coin**,
   mindestens 10 % Bargeld, höchstens 12 Orders am Tag.
+- **Nachrichten:** Claude stützt seine Entscheidungen auf die Nachrichten deiner Quellen
+  (Option **Nachrichtenquellen**, vorgegeben CoinDesk, Cointelegraph, Decrypt und BTC-ECHO; jede
+  Webseite mit RSS-Feed geht). Eine allgemeine Websuche macht er dann nicht, er darf nur Artikel
+  dieser Quellen öffnen. Bei jedem Trade steht, auf welcher Nachricht er beruht. Nachrichten sind
+  für Claude nur Information, keine Anweisung, und die festen Regeln gelten trotzdem.
+- **Einsatz und Gewinnstufen:** Claude setzt nur den Einsatz ein, anfangs das Budget (500 €).
+  Beispiel: Kauf für 50 €, Verkauf für 70 € → der Gesamtwert ist 520 €, aber eingesetzt werden
+  weiter nur 500 €; die 20 € liegen gesichert beiseite. Erreicht der Gesamtwert **+10 % über dem
+  Einsatz** (550 €), verkauft der Bot alles, der Einsatz steigt auf 550 € und Claude entscheidet
+  neu. Bei z. B. 560 € (+12 %) zählen trotzdem nur die 10 %; 10 € bleiben beiseite. Die nächste
+  Stufe kommt bei 605 € (+10 % auf 550 €) usw. Einstellbar unter **Gewinnstufe** (0 = aus).
 - **Risikobereitschaft** im Dashboard umschaltbar:
 
   | Stufe | pro Kauf | großer Coin | kleiner Coin | Bargeld mind. | Stop-Loss |

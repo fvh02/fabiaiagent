@@ -8,6 +8,15 @@ configuration:
   coins:
     name: Coins
     description: auto = the most traded coins of the exchange (small ones too). Or a fixed comma list, e.g. BTC,ETH,SOL.
+  news_sources:
+    name: News sources
+    description: RSS feeds or web pages (with a feed) Claude bases its decisions on. Claude only reads these sources, no general web search. Empty list = Claude may search the web freely.
+  profit_step_pct:
+    name: Profit step (%)
+    description: Claude only uses the stake (the budget at first); profit above it stays aside. When the total reaches +this percent over the stake, the stake grows by exactly this percent (+12 % counts as 10 %). 0 = off.
+  profit_step_sell_all:
+    name: Sell everything at a profit step
+    description: At a profit step the bot sells everything and Claude decides again from cash.
   auto_top:
     name: Number of coins (auto)
     description: With "auto", this many of the most traded coins are considered.
@@ -43,7 +52,7 @@ configuration:
     description: A coin is sold automatically when it is this far below its buy price (checked hourly).
   max_drawdown_pct:
     name: Total loss limit (%)
-    description: When the total value is this far below the start, everything is sold and trading stops.
+    description: When the total value is this far below the stake, everything is sold and trading stops.
   fee_pct:
     name: Paper trading fee (%)
     description: Simulated fee per trade.
