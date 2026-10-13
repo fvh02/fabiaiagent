@@ -1,0 +1,461 @@
+#!/usr/bin/env python3
+"""Parcel tracking: remembers your parcels, checks them regularly and reports by iMessage
+when one is out for delivery, ready for pickup, delivered or has a problem.
+
+  pakete add NUMMER|LINK [--name TEXT] [--dienst DIENST] [--aus-mail]
+      DIENST: dhl, dpd, hermes, gls, ups, amazon, post, fedex (optional, usually recognised)
+      --aus-mail: found in an e-mail, the person gets a short iMessage about it
+  pakete list                  all parcels with their last known status (no new query)
+  pakete status [ID|NUMMER]    query now; without argument all parcels
+  pakete remove ID|NUMMER
+  pakete check                 run by the add-on every hour: query and report changes
+
+Tracking sources (prints JSON):
+  - PAKETE_17TRACK_KEY  17TRACK API, all carriers (free key at api.17track.net)
+  - PAKETE_DHL_KEY      DHL Shipment Tracking API for DHL parcels (free key at developer.dhl.com)
+Without a key the parcel is only remembered; status then comes from the carrier's web page.
+"""
+
+import json
+import os
+import re
+import sys
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+import uuid
+from datetime import datetime
+from pathlib import Path
+
+STATE_DIR = Path(os.environ.get("PAKETE_STATE_DIR", "/data/pakete"))
+API_17TRACK = os.environ.get("PAKETE_17TRACK_URL", "https://api.17track.net/track/v2.2").rstrip("/")
+API_DHL = os.environ.get("PAKETE_DHL_URL", "https://api-eu.dhl.com/track/shipments")
+KEEP_DELIVERED = 3 * 86400   # delivered parcels drop off the list after three days
+MAX_PARCELS = 60
+
+CARRIERS = {
+    "dhl": ("DHL", "https://www.dhl.de/de/privatkunden/pakete-empfangen/verfolgen.html?piececode={n}"),
+    "post": ("Deutsche Post", "https://www.deutschepost.de/de/s/sendungsverfolgung.html?piececode={n}"),
+    "dpd": ("DPD", "https://tracking.dpd.de/status/de_DE/parcel/{n}"),
+    "hermes": ("Hermes", "https://www.myhermes.de/empfangen/sendungsverfolgung/sendungsinformation#{n}"),
+    "gls": ("GLS", "https://gls-group.com/DE/de/paketverfolgung?match={n}"),
+    "ups": ("UPS", "https://www.ups.com/track?loc=de_DE&tracknum={n}"),
+    "fedex": ("FedEx", "https://www.fedex.com/fedextrack/?trknbr={n}"),
+    "amazon": ("Amazon", "https://www.amazon.de/gp/your-account/order-history"),
+}
+# Our own status names, in the order a parcel goes through them.
+LABEL = {
+    "unbekannt": "noch keine Infos",
+    "angekuendigt": "angekündigt",
+    "unterwegs": "unterwegs",
+    "in_zustellung": "in Zustellung – kommt heute",
+    "abholbereit": "liegt zur Abholung bereit",
+    "zugestellt": "zugestellt",
+    "problem": "Problem bei der Zustellung",
+}
+REPORT = {"in_zustellung": "🚚", "abholbereit": "📍", "zugestellt": "✅", "problem": "⚠️"}
+
+
+def out(data) -> None:
+    print(json.dumps(data, ensure_ascii=False, indent=1))
+
+
+def fail(message: str) -> None:
+    out({"error": message})
+    sys.exit(1)
+
+
+# -- numbers and carriers ---------------------------------------------------------
+LINK_PARAMS = ("piececode", "idc", "tracknum", "trknbr", "match", "parcelNumber", "parcelnumber", "trackingNumber",
+               "tracking_number", "sendungsnummer", "shipmentNumber", "parcel")
+LINK_DOMAINS = {"dhl.": "dhl", "deutschepost.": "post", "dpd.": "dpd", "myhermes.": "hermes", "hermesworld.": "hermes",
+                "gls-": "gls", "gls.": "gls", "ups.": "ups", "fedex.": "fedex", "amazon.": "amazon"}
+
+
+def parse_input(text: str) -> tuple[str, str]:
+    """Tracking number and carrier (if known) from a number or a tracking link."""
+    text = text.strip()
+    carrier = ""
+    if re.match(r"https?://", text, re.I):
+        url = urllib.parse.urlparse(text)
+        host = url.netloc.lower()
+        carrier = next((c for d, c in LINK_DOMAINS.items() if d in host), "")
+        query = urllib.parse.parse_qs(url.query)
+        number = next((query[p][0] for p in LINK_PARAMS if query.get(p)), "")
+        if not number:
+            parts = [p for p in re.split(r"[/#?&=]", url.path + "#" + url.fragment) if re.fullmatch(r"[A-Za-z0-9]{8,35}", p)]
+            number = next((p for p in reversed(parts) if re.search(r"\d{6}", p)), "")
+        text = number
+    number = re.sub(r"[\s-]", "", text).upper()
+    if not re.fullmatch(r"[A-Z0-9]{6,35}", number) or len(re.findall(r"\d", number)) < 6:
+        fail("Das sieht nicht nach einer Sendungsnummer aus")
+    return number, carrier or guess_carrier(number)
+
+
+def guess_carrier(n: str) -> str:
+    if re.fullmatch(r"1Z[0-9A-Z]{16}", n):
+        return "ups"
+    if re.fullmatch(r"TBA\d{9,15}", n):
+        return "amazon"
+    if re.fullmatch(r"JJD\d{10,30}", n) or re.fullmatch(r"00340\d{15}", n) or re.fullmatch(r"\d{20}", n):
+        return "dhl"
+    if re.fullmatch(r"[A-Z]{2}\d{9}DE", n):
+        return "post"
+    if re.fullmatch(r"H\d{19}", n):
+        return "hermes"
+    return ""   # e.g. 14 digits: Hermes or DPD – 17TRACK finds out itself
+
+
+def link(p: dict) -> str:
+    if p.get("carrier") in CARRIERS:
+        return CARRIERS[p["carrier"]][1].format(n=urllib.parse.quote(p["number"]))
+    return f"https://t.17track.net/de#nums={urllib.parse.quote(p['number'])}"
+
+
+def carrier_name(p: dict) -> str:
+    return CARRIERS.get(p.get("carrier") or "", (p.get("carrier_name") or "",))[0] or p.get("carrier_name") or "Paketdienst unbekannt"
+
+
+# -- storage ----------------------------------------------------------------------
+def load() -> list[dict]:
+    try:
+        return json.loads((STATE_DIR / "pakete.json").read_text())
+    except (OSError, ValueError):
+        return []
+
+
+def save(parcels: list[dict]) -> None:
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    tmp = STATE_DIR / "pakete.tmp"
+    tmp.write_text(json.dumps(parcels, ensure_ascii=False, indent=1))
+    tmp.replace(STATE_DIR / "pakete.json")
+
+
+def find(parcels: list[dict], ref: str) -> dict:
+    ref = re.sub(r"[\s-]", "", ref).upper()
+    for p in parcels:
+        if p["id"].upper() == ref or p["number"] == ref:
+            return p
+    fail("Kein Paket mit dieser ID oder Nummer")
+
+
+# -- tracking sources ---------------------------------------------------------------
+def http_json(url: str, *, data=None, headers: dict | None = None, timeout: int = 25):
+    body = json.dumps(data).encode() if data is not None else None
+    request = urllib.request.Request(url, data=body, method="POST" if body is not None else "GET")
+    for k, v in (headers or {}).items():
+        request.add_header(k, v)
+    if body is not None:
+        request.add_header("Content-Type", "application/json")
+    with urllib.request.urlopen(request, timeout=timeout) as resp:
+        return json.loads(resp.read() or b"null")
+
+
+def when(value) -> float:
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return 0.0
+
+
+def dhl_query(p: dict, key: str) -> dict:
+    try:
+        data = http_json(f"{API_DHL}?{urllib.parse.urlencode({'trackingNumber': p['number'], 'language': 'de'})}",
+                         headers={"DHL-API-Key": key, "Accept": "application/json"})
+    except urllib.error.HTTPError as err:
+        if err.code == 404:
+            return {"status": "unbekannt", "text": "DHL kennt die Nummer (noch) nicht"}
+        raise
+    shipment = (data.get("shipments") or [{}])[0]
+    st = shipment.get("status") or {}
+    code = st.get("statusCode") or "unknown"
+    text = " – ".join(x for x in (st.get("status"), st.get("description")) if x and x != st.get("statusCode"))
+    low = text.lower()
+    status = {"pre-transit": "angekuendigt", "transit": "unterwegs", "delivered": "zugestellt",
+              "failure": "problem"}.get(code, "unbekannt")
+    if status == "unterwegs" and ("zustellung" in low and ("heute" in low or "in zustellung" in low or "zugestellt werden" in low)):
+        status = "in_zustellung"
+    if status in ("unterwegs", "problem") and any(w in low for w in ("abholbereit", "zur abholung", "filiale", "packstation")):
+        status = "abholbereit"
+    address = ((st.get("location") or {}).get("address") or {}).get("addressLocality") or ""
+    events = [{"time": when(e.get("timestamp")), "text": e.get("description") or e.get("status") or "",
+               "place": ((e.get("location") or {}).get("address") or {}).get("addressLocality") or ""}
+              for e in shipment.get("events") or []]
+    return {"status": status, "text": text or code, "place": address, "time": when(st.get("timestamp")),
+            "eta": shipment.get("estimatedTimeOfDelivery") or "", "events": events[:8], "carrier_name": "DHL"}
+
+
+STATUS_17 = {"NotFound": "unbekannt", "InfoReceived": "angekuendigt", "InTransit": "unterwegs",
+             "OutForDelivery": "in_zustellung", "AvailableForPickup": "abholbereit", "Delivered": "zugestellt",
+             "DeliveryFailure": "problem", "Exception": "problem", "Expired": "problem"}
+
+
+def track17_register(p: dict, key: str) -> None:
+    data = http_json(f"{API_17TRACK}/register", data=[{"number": p["number"]}], headers={"17token": key})
+    rejected = (data.get("data") or {}).get("rejected") or []
+    for r in rejected:
+        message = str((r.get("error") or {}).get("message") or "")
+        if "registered" not in message.lower():     # "already registered" is fine
+            raise RuntimeError(f"17TRACK lehnt die Nummer ab: {message[:120]}")
+    p["registered"] = True
+
+
+def track17_query(p: dict, key: str) -> dict:
+    if not p.get("registered"):
+        track17_register(p, key)
+    data = http_json(f"{API_17TRACK}/gettrackinfo", data=[{"number": p["number"]}], headers={"17token": key})
+    accepted = (data.get("data") or {}).get("accepted") or []
+    if not accepted:
+        return {"status": "unbekannt", "text": "17TRACK hat noch keine Daten"}
+    info = accepted[0].get("track_info") or {}
+    latest = info.get("latest_event") or {}
+    status = STATUS_17.get((info.get("latest_status") or {}).get("status") or "", "unbekannt")
+    providers = (info.get("tracking") or {}).get("providers") or []
+    name = ((providers[0].get("provider") or {}).get("name") if providers else "") or ""
+    events = [{"time": when(e.get("time_iso")), "text": e.get("description") or "", "place": e.get("location") or ""}
+              for e in (providers[0].get("events") if providers else []) or []]
+    eta = ((info.get("time_metrics") or {}).get("estimated_delivery_date") or {})
+    return {"status": status, "text": latest.get("description") or LABEL[status], "place": latest.get("location") or "",
+            "time": when(latest.get("time_iso")), "eta": eta.get("to") or eta.get("from") or "",
+            "events": events[:8], "carrier_name": name}
+
+
+def query(p: dict) -> dict | None:
+    """Fresh status from the best available source, or None if there is none."""
+    dhl, t17 = os.environ.get("PAKETE_DHL_KEY", "").strip(), os.environ.get("PAKETE_17TRACK_KEY", "").strip()
+    if dhl and p.get("carrier") in ("dhl", "post", ""):
+        try:
+            result = dhl_query(p, dhl)
+            if result["status"] != "unbekannt" or not t17:
+                if result["status"] != "unbekannt":
+                    p["carrier"] = p.get("carrier") or "dhl"
+                return result
+        except (urllib.error.URLError, OSError, ValueError) as err:
+            if not t17:
+                raise RuntimeError(f"DHL nicht erreichbar: {err}") from err
+    if t17:
+        return track17_query(p, t17)
+    return None
+
+
+def update(p: dict) -> bool:
+    """Queries one parcel; True if its status changed."""
+    try:
+        result = query(p)
+    except (RuntimeError, urllib.error.URLError, OSError, ValueError) as err:
+        p["error"] = str(err)[:200]
+        return False
+    p.pop("error", None)
+    p["checked"] = time.time()
+    if result is None:
+        return False
+    changed = result["status"] != p.get("status")
+    p.update(status=result["status"], text=result.get("text") or "", place=result.get("place") or "",
+             time=result.get("time") or p.get("time") or 0, eta=result.get("eta") or "", events=result.get("events") or [])
+    if result.get("carrier_name") and not p.get("carrier"):
+        name = result["carrier_name"]
+        # Known carrier: remember it, so the link goes to the carrier's own page.
+        p["carrier"] = next((k for k in CARRIERS if k in name.lower() and k != "post"), "")
+        p["carrier_name"] = name
+    if result["status"] == "zugestellt" and not p.get("delivered_at"):
+        p["delivered_at"] = time.time()
+    return changed
+
+
+# -- output ------------------------------------------------------------------------
+def fmt_time(ts: float) -> str:
+    if not ts:
+        return ""
+    d = datetime.fromtimestamp(ts)
+    today = datetime.now().date()
+    day = "heute" if d.date() == today else "gestern" if (today - d.date()).days == 1 else d.strftime("%d.%m.")
+    return f"{day} {d.strftime('%H:%M')}"
+
+
+def fmt_eta(eta: str) -> str:
+    ts = when(eta)
+    if not ts:
+        return ""
+    d = datetime.fromtimestamp(ts).date()
+    delta = (d - datetime.now().date()).days
+    return "heute" if delta == 0 else "morgen" if delta == 1 else d.strftime("%d.%m.")
+
+
+def view(p: dict, details: bool = False) -> dict:
+    status = p.get("status") or "unbekannt"
+    v = {"id": p["id"], "name": p.get("name") or "", "number": p["number"], "carrier": carrier_name(p),
+         "status": LABEL[status], "last_event": p.get("text") or "", "place": p.get("place") or "",
+         "when": fmt_time(p.get("time") or 0), "expected": fmt_eta(p.get("eta") or ""), "link": link(p)}
+    if not p.get("checked"):
+        v["note"] = "Kein automatisches Tracking eingerichtet – Status über den Link abrufen"
+    if p.get("error"):
+        v["error"] = p["error"]
+    if details:
+        v["events"] = [{"when": fmt_time(e["time"]), "text": e["text"], "place": e["place"]} for e in p.get("events") or []]
+    return {k: x for k, x in v.items() if x not in ("", None)}
+
+
+def title(p: dict) -> str:
+    return f"„{p['name']}“" if p.get("name") else p["number"]
+
+
+def summary(parcels: list[dict]) -> str:
+    if not parcels:
+        return "Keine Pakete in der Verfolgung."
+    lines = []
+    for p in parcels:
+        status = p.get("status") or "unbekannt"
+        line = f"• {title(p)} ({carrier_name(p)}): {LABEL[status]}"
+        eta = fmt_eta(p.get("eta") or "")
+        if eta and status in ("angekuendigt", "unterwegs"):
+            line += f", erwartet {eta}"
+        if status == "abholbereit" and p.get("place"):
+            line += f" – {p['place']}"
+        lines.append(line)
+    return "\n".join(lines)
+
+
+def send_imessage(text: str) -> bool:
+    to, key = os.environ.get("PAKETE_NOTIFY_TO", "").strip(), os.environ.get("INKBOX_API_KEY", "").strip()
+    if not to or not key:
+        return False
+    url = os.environ.get("INKBOX_IMESSAGE_URL", "https://inkbox.ai/api/v1/imessage/messages")
+    request = urllib.request.Request(url, data=json.dumps({"to": to, "text": text}).encode(), method="POST")
+    request.add_header("X-API-Key", key)
+    request.add_header("Content-Type", "application/json")
+    try:
+        with urllib.request.urlopen(request, timeout=30):
+            return True
+    except (urllib.error.URLError, OSError):
+        return False
+
+
+def report_text(p: dict) -> str:
+    status = p["status"]
+    text = f"{REPORT[status]} Paket {title(p)} ({carrier_name(p)}): {LABEL[status]}"
+    if status == "abholbereit" and p.get("place"):
+        text += f"\n📍 {p['place']}"
+    if p.get("text") and status in ("abholbereit", "problem"):
+        text += f"\n{p['text']}"
+    return text + f"\n{link(p)}"
+
+
+# -- commands ----------------------------------------------------------------------
+def cmd_add(args: list[str]) -> None:
+    if not args:
+        fail("pakete add NUMMER|LINK [--name TEXT] [--dienst DIENST] [--aus-mail]")
+    name, carrier, from_mail, rest = "", "", False, []
+    i = 0
+    while i < len(args):
+        a = args[i]
+        if a == "--name" and i + 1 < len(args):
+            name, i = args[i + 1].strip()[:60], i + 2
+        elif a == "--dienst" and i + 1 < len(args):
+            carrier, i = args[i + 1].strip().lower(), i + 2
+        elif a == "--aus-mail":
+            from_mail, i = True, i + 1
+        else:
+            rest.append(a)
+            i += 1
+    if carrier and carrier not in CARRIERS:
+        fail(f"Unbekannter Paketdienst – möglich: {', '.join(CARRIERS)}")
+    number, guessed = parse_input(" ".join(rest))
+    parcels = load()
+    for p in parcels:
+        if p["number"] == number:
+            if name and not p.get("name"):
+                p["name"] = name
+            save(parcels)
+            out({"already_tracked": view(p)})
+            return
+    if len(parcels) >= MAX_PARCELS:
+        fail("Zu viele Pakete in der Liste – erst alte entfernen")
+    p = {"id": uuid.uuid4().hex[:4], "number": number, "carrier": carrier or guessed, "name": name,
+         "added": time.time(), "status": "unbekannt", "source": "mail" if from_mail else "nachricht"}
+    changed = update(p)
+    p["reported"] = p["status"] if p["status"] in REPORT else ""    # nothing old to report later
+    parcels.append(p)
+    save(parcels)
+    tracking = bool(os.environ.get("PAKETE_17TRACK_KEY") or (os.environ.get("PAKETE_DHL_KEY") and p["carrier"] in ("dhl", "post")))
+    result = {"added": view(p), "automatic_updates": tracking}
+    if not tracking:
+        result["hint"] = "Ohne Tracking-Schlüssel nur gemerkt; Status bei Nachfrage über den Link abrufen"
+    if from_mail:
+        result["imessage_sent"] = send_imessage(f"📦 Neues Paket erkannt: {title(p)} ({carrier_name(p)})"
+                                                + (f" – {LABEL[p['status']]}" if changed or p["status"] != "unbekannt" else "")
+                                                + "\nIch melde mich, wenn es kommt.")
+    out(result)
+
+
+def cmd_list() -> None:
+    parcels = cleanup(load())
+    out({"summary": summary(parcels), "parcels": [view(p) for p in parcels]})
+
+
+def cmd_status(args: list[str]) -> None:
+    parcels = load()
+    targets = [find(parcels, args[0])] if args else parcels
+    for p in targets:
+        update(p)
+    save(parcels)
+    if args:
+        out(view(targets[0], details=True))
+    else:
+        out({"summary": summary(parcels), "parcels": [view(p) for p in parcels]})
+
+
+def cmd_remove(args: list[str]) -> None:
+    if not args:
+        fail("pakete remove ID|NUMMER")
+    parcels = load()
+    p = find(parcels, args[0])
+    save([x for x in parcels if x is not p])
+    out({"removed": view(p)})
+
+
+def cleanup(parcels: list[dict]) -> list[dict]:
+    keep = [p for p in parcels if not (p.get("delivered_at") and time.time() - p["delivered_at"] > KEEP_DELIVERED)]
+    if len(keep) != len(parcels):
+        save(keep)
+    return keep
+
+
+def cmd_check() -> None:
+    """Every hour from the add-on: query all parcels and report the important changes once."""
+    parcels = cleanup(load())
+    sent = []
+    for p in parcels:
+        if p.get("status") == "zugestellt":
+            continue
+        update(p)
+        status = p.get("status") or "unbekannt"
+        if status in REPORT and p.get("reported") != status:
+            if send_imessage(report_text(p)):
+                p["reported"] = status
+                sent.append(p["id"])
+    save(parcels)
+    out({"checked": len(parcels), "notified": sent})
+
+
+def main(argv: list[str]) -> None:
+    if not argv or argv[0] in ("-h", "--help"):
+        print(__doc__.strip())
+        return
+    cmd, args = argv[0], argv[1:]
+    if cmd == "add":
+        cmd_add(args)
+    elif cmd == "list":
+        cmd_list()
+    elif cmd == "status":
+        cmd_status(args)
+    elif cmd == "remove":
+        cmd_remove(args)
+    elif cmd == "check":
+        cmd_check()
+    else:
+        fail("pakete add|list|status|remove|check")
+
+
+if __name__ == "__main__":
+    main(sys.argv[1:])

@@ -54,11 +54,17 @@ configuration:
     name: Deine Postleitzahl
     description: Für genaue Versandkosten in den Suchergebnissen (optional).
   ebay_notify_to:
-    name: Preisalarm an
-    description: Deine Telefonnummer im Format +49…, an die neue Treffer deiner Preisalarme per iMessage gehen. Leer = keine Preisalarme.
+    name: Deine Handynummer (Meldungen)
+    description: Deine Telefonnummer im Format +49…. Dorthin gehen eBay-Preisalarme und Paketmeldungen per iMessage. Leer = keine solchen Meldungen.
   druck_url:
     name: 3D-Druck-Adresse
     description: Interne Adresse des 3D-Druck-Add-ons. Die Vorgabe passt, wenn es aus diesem Repository installiert ist. Leer lassen, wenn Claude nicht drucken soll.
   krypto_url:
     name: Krypto-Trader-Adresse
     description: Interne Adresse des Krypto-Trader-Add-ons. Die Vorgabe passt, wenn es aus diesem Repository installiert ist. Leer = nicht verbinden.
+  paket_17track_key:
+    name: Paketverfolgung – 17TRACK-Schlüssel
+    description: Kostenloser API-Schlüssel von api.17track.net – verfolgt Pakete aller Paketdienste automatisch (DHL, DPD, Hermes, GLS, UPS …). Leer = Pakete werden nur gemerkt.
+  paket_dhl_key:
+    name: Paketverfolgung – DHL-Schlüssel
+    description: Optional. Kostenloser API-Key von developer.dhl.com (Shipment Tracking – Unified) für genauere DHL-Daten.

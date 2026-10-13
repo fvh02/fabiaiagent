@@ -127,11 +127,47 @@ Einrichtung (einmalig, kostenlos):
    - **eBay Client ID** = *App ID (Client ID)* aus dem Production-Keyset
    - **eBay Client Secret** = *Cert ID (Client Secret)*
    - **Deine Postleitzahl** (für genaue Versandkosten, optional)
-   - **Preisalarm an** = deine Handynummer im Format `+49…` (für Preisalarme)
+   - **Deine Handynummer (Meldungen)** = deine Handynummer im Format `+49…` (für Preisalarme)
 5. Speichern und neu starten. Im Protokoll steht `[inkbox] eBay: aktiv`.
 
 Preisalarme prüft das Gateway alle 30 Minuten. Neue passende Angebote kommen per iMessage,
 jedes nur einmal. „Welche Preisalarme habe ich?“ und „Lösch den PS5-Alarm“ gehen auch.
+
+## Paketverfolgung
+
+Der Assistent behält deine Pakete im Blick und meldet sich von selbst per iMessage, wenn ein
+Paket **in Zustellung** ist („kommt heute“), **zur Abholung bereitliegt** (mit Adresse des
+Paketshops), **zugestellt** wurde oder es ein **Problem** gibt. Sonst bleibt er still.
+
+So kommen Pakete in die Liste:
+
+- **Per Nachricht:** Sendungsnummer oder Tracking-Link schicken, gern mit Inhalt
+  („Verfolg 00340434161234567890, das sind die AirPods“). Ein Screenshot der Versandbestätigung geht auch.
+- **Per E-Mail, automatisch:** Versandbestätigungen an die E-Mail-Adresse deiner Inkbox-Identität
+  weiterleiten – von Hand oder mit einer Weiterleitungsregel in deinem Postfach (z. B. für Mails
+  von DHL, DPD, Hermes, GLS, UPS, Amazon mit „Versand“ oder „Sendung“ im Betreff). Der Assistent
+  nimmt daraus nur die Sendungsnummer, antwortet nicht auf die Mail und schreibt dir kurz
+  „📦 Neues Paket erkannt“.
+
+Fragen kannst du jederzeit: „Wo ist mein Paket?“, „Kommt heute was?“, „Wo liegt das Kabel?“.
+Zugestellte Pakete verschwinden nach drei Tagen von selbst aus der Liste.
+
+Einrichtung:
+
+1. **Handynummer:** Unter **Konfiguration** bei **Deine Handynummer (Meldungen)** eintragen
+   (dasselbe Feld wie für die eBay-Preisalarme).
+2. **Automatische Abfrage (empfohlen):** Auf [api.17track.net](https://api.17track.net) kostenlos
+   registrieren, den API-Schlüssel kopieren und bei **Paketverfolgung – 17TRACK-Schlüssel**
+   eintragen. Damit werden Pakete aller großen Paketdienste verfolgt. Wie viele Sendungsnummern
+   der kostenlose Tarif pro Monat erlaubt, zeigt dir das 17TRACK-Dashboard.
+3. **Optional DHL:** Auf [developer.dhl.com](https://developer.dhl.com) eine App mit der API
+   „Shipment Tracking – Unified“ anlegen und den API-Key bei **Paketverfolgung – DHL-Schlüssel**
+   eintragen. DHL-Pakete werden dann direkt bei DHL abgefragt.
+4. Speichern und neu starten. Im Protokoll steht `[inkbox] Paketverfolgung: aktiv, Meldungen an …`.
+
+Ohne Schlüssel merkt sich der Assistent die Pakete trotzdem und schaut bei Nachfrage auf der
+Seite des Paketdiensts nach – automatische Meldungen gibt es dann nicht. Geprüft wird stündlich
+zwischen 7 und 22 Uhr.
 
 ## 3D-Druck
 

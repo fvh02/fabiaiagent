@@ -54,11 +54,17 @@ configuration:
     name: Your postal code
     description: For exact shipping costs in search results (optional).
   ebay_notify_to:
-    name: Price alerts to
-    description: Your phone number as +49…, which receives new matches of your price alerts by iMessage. Empty = no price alerts.
+    name: Your phone number (notifications)
+    description: Your phone number as +49…. eBay price alerts and parcel updates go there by iMessage. Empty = no such notifications.
   druck_url:
     name: 3D printing address
     description: Internal address of the 3D printing add-on. The default fits when it is installed from this repository. Leave empty if Claude should not print.
   krypto_url:
     name: Crypto trader address
     description: Internal address of the crypto trader add-on. The default fits when installed from this repository. Empty = not connected.
+  paket_17track_key:
+    name: Parcel tracking – 17TRACK key
+    description: Free API key from api.17track.net – tracks parcels of all carriers automatically (DHL, DPD, Hermes, GLS, UPS …). Empty = parcels are only remembered.
+  paket_dhl_key:
+    name: Parcel tracking – DHL key
+    description: Optional. Free API key from developer.dhl.com (Shipment Tracking – Unified) for more precise DHL data.
