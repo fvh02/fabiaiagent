@@ -1,5 +1,5 @@
 name: Inkbox Claude Gateway
-version: "0.13.0"
+version: "0.14.0"
 slug: inkbox_claude_gateway
 description: Weckt Claude Code bei eingehenden E-Mails und iMessages über Inkbox.
 url: https://github.com/fvh02/fabiaiagent
@@ -40,6 +40,7 @@ options:
   krypto_url: http://afcf546d-krypto:8094
   paket_17track_key: ""
   paket_dhl_key: ""
+  untis: []
 schema:
   inkbox_api_key: password
   inkbox_identity: str
@@ -64,3 +65,9 @@ schema:
   krypto_url: str?
   paket_17track_key: password?
   paket_dhl_key: password?
+  untis:
+    - name: str
+      server: str
+      school: str?
+      username: str
+      password: password

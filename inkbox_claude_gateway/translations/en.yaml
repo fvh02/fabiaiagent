@@ -68,3 +68,6 @@ configuration:
   paket_dhl_key:
     name: Parcel tracking – DHL key
     description: Optional. Free API key from developer.dhl.com (Shipment Tracking – Unified) for more precise DHL data.
+  untis:
+    name: Timetables (WebUntis)
+    description: "One entry per timetable. name = any name, server = the address from the browser at the WebUntis login (e.g. https://nessa.webuntis.com/WebUntis/?school=gym-example – then leave school empty) or just the server, school = school name, username and password = your WebUntis login. Untis password only, not Microsoft login."

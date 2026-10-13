@@ -1,0 +1,461 @@
+#!/usr/bin/env python3
+"""WebUntis timetables: show lessons and report changes (cancelled, substitution, room change,
+extra lessons) by iMessage. Several timetables are possible. Prints JSON.
+
+  untis tag [heute|morgen|TT.MM.|JJJJ-MM-TT] [--name NAME]   lessons of one day
+  untis aenderungen [--name NAME]                            changes in the next 7 days
+  untis test                                                 check the login of every timetable
+  untis check                                                run by the add-on every 15 minutes
+
+The timetables come from UNTIS_ACCOUNTS (JSON list of {name, server, school, username, password});
+the add-on fills it from its options. Uses the official WebUntis JSON-RPC API.
+"""
+
+import http.cookiejar
+import json
+import os
+import re
+import sys
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+from datetime import date, datetime, timedelta
+from pathlib import Path
+
+STATE_DIR = Path(os.environ.get("UNTIS_STATE_DIR", "/data/untis"))
+DAYS_AHEAD = 7
+WEEKDAYS = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"]
+
+
+class UntisError(Exception):
+    pass
+
+
+def out(data) -> None:
+    print(json.dumps(data, ensure_ascii=False, indent=1))
+
+
+def fail(message: str) -> None:
+    out({"error": message})
+    sys.exit(1)
+
+
+# -- accounts -------------------------------------------------------------------
+def accounts() -> list[dict]:
+    try:
+        raw = json.loads(os.environ.get("UNTIS_ACCOUNTS") or "[]")
+    except ValueError:
+        raw = []
+    result = []
+    for i, a in enumerate(raw if isinstance(raw, list) else []):
+        server, school = str(a.get("server") or "").strip(), str(a.get("school") or "").strip()
+        # The address from the browser also works: https://xyz.webuntis.com/WebUntis/?school=abc#/basic/login
+        if "://" in server or "/" in server:
+            url = urllib.parse.urlparse(server if "://" in server else "https://" + server)
+            server = url.netloc
+            school = school or (urllib.parse.parse_qs(url.query).get("school") or [""])[0]
+        if server and school and a.get("username") and a.get("password"):
+            result.append({"name": str(a.get("name") or f"Stundenplan {i + 1}").strip(), "server": server.lower(),
+                           "school": school, "username": str(a["username"]).strip(), "password": str(a["password"])})
+    return result
+
+
+def pick(name: str | None) -> list[dict]:
+    accs = accounts()
+    if not accs:
+        fail("Kein Stundenplan eingerichtet (Option untis im Gateway: Server, Schule, Benutzer, Passwort)")
+    if not name:
+        return accs
+    chosen = [a for a in accs if a["name"].lower() == name.lower()] or [a for a in accs if name.lower() in a["name"].lower()]
+    if not chosen:
+        fail(f"Kein Stundenplan „{name}“ – vorhanden: {', '.join(a['name'] for a in accs)}")
+    return chosen
+
+
+# -- WebUntis JSON-RPC ------------------------------------------------------------
+ERRORS = {-8504: "Benutzername oder Passwort falsch", -8520: "nicht angemeldet", -8509: "keine Berechtigung für diesen Stundenplan",
+          -8998: "Benutzer gesperrt (zu viele Fehlversuche?)", -7004: "außerhalb des Schuljahres"}
+
+
+class Session:
+    def __init__(self, account: dict):
+        self.account = account
+        base = os.environ.get("UNTIS_BASE_URL") or f"https://{account['server']}"
+        self.url = f"{base.rstrip('/')}/WebUntis/jsonrpc.do?school={urllib.parse.quote(account['school'])}"
+        self.opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
+        self.person: tuple[int, int] | None = None
+        self.klasse = 0
+
+    def call(self, method: str, params=None):
+        body = json.dumps({"id": str(int(time.time() * 1000)), "method": method, "params": params or {}, "jsonrpc": "2.0"}).encode()
+        request = urllib.request.Request(self.url, data=body, method="POST",
+                                         headers={"Content-Type": "application/json", "User-Agent": "inkbox-assistent"})
+        try:
+            with self.opener.open(request, timeout=30) as resp:
+                data = json.loads(resp.read() or b"{}")
+        except urllib.error.HTTPError as err:
+            raise UntisError(f"WebUntis-Server antwortet mit Fehler {err.code} – Server und Schule prüfen") from err
+        except (urllib.error.URLError, OSError) as err:
+            raise UntisError(f"WebUntis-Server {self.account['server']} nicht erreichbar") from err
+        except ValueError as err:
+            raise UntisError("Antwort von WebUntis nicht lesbar – Server und Schule prüfen") from err
+        if data.get("error"):
+            code = data["error"].get("code")
+            raise UntisError(ERRORS.get(code) or f"WebUntis-Fehler {code}: {data['error'].get('message', '')}"[:200])
+        return data.get("result")
+
+    def __enter__(self):
+        result = self.call("authenticate", {"user": self.account["username"], "password": self.account["password"],
+                                            "client": "inkbox-assistent"})
+        if not isinstance(result, dict) or not result.get("sessionId"):
+            raise UntisError("Anmeldung fehlgeschlagen – Anmeldung über Microsoft/Schul-Login geht nicht, nur mit Untis-Passwort")
+        self.person = (int(result.get("personType") or 0), int(result.get("personId") or 0))
+        self.klasse = int(result.get("klasseId") or 0)
+        return self
+
+    def __exit__(self, *exc):
+        try:
+            self.call("logout")
+        except UntisError:
+            pass
+
+    def periods(self) -> dict[int, str]:
+        """startTime → period number ("3"), from the school's time grid."""
+        try:
+            grid = self.call("getTimegridUnits") or []
+        except UntisError:
+            return {}
+        return {int(u["startTime"]): str(u.get("name") or "") for day in grid for u in day.get("timeUnits") or []}
+
+    def timetable(self, start: date, end: date) -> list[dict]:
+        options = {"startDate": int(start.strftime("%Y%m%d")), "endDate": int(end.strftime("%Y%m%d")),
+                   "showLsText": True, "showSubstText": True, "showInfo": True, "showStudentgroup": True,
+                   "klasseFields": ["name"], "roomFields": ["name"], "subjectFields": ["name", "longname"],
+                   "teacherFields": ["name"]}
+        elements = []
+        if self.person and self.person[1]:
+            elements.append({"id": self.person[1], "type": self.person[0]})
+        if self.klasse:
+            elements.append({"id": self.klasse, "type": 1})    # class timetable if the own one is not allowed
+        last = None
+        for element in elements:
+            try:
+                return self.call("getTimetable", {"options": {**options, "element": element}}) or []
+            except UntisError as err:
+                last = err
+                if "außerhalb des Schuljahres" in str(err):
+                    return []
+        raise last or UntisError("Kein Stundenplan für dieses Konto")
+
+
+# -- lessons ----------------------------------------------------------------------
+def names(items, field: str = "name") -> list[str]:
+    return [str(i.get(field) or i.get("name") or "") for i in items or [] if i.get(field) or i.get("name")]
+
+
+def lesson(raw: dict, grid: dict[int, str]) -> dict:
+    d = datetime.strptime(str(raw["date"]), "%Y%m%d").date()
+    start, end = int(raw.get("startTime") or 0), int(raw.get("endTime") or 0)
+    subject = names(raw.get("su"), "longname") or names(raw.get("su")) or [raw.get("lstext") or raw.get("activityType") or "Stunde"]
+    short = names(raw.get("su")) or subject
+    rooms, teachers = names(raw.get("ro")), names(raw.get("te"))
+    old_rooms = [r["orgname"] for r in raw.get("ro") or [] if r.get("orgname")]
+    old_teachers = [t["orgname"] for t in raw.get("te") or [] if t.get("orgname")]
+    code = raw.get("code") or ""
+    status = "entfällt" if code == "cancelled" else "geändert" if (code == "irregular" or old_rooms or old_teachers) else "normal"
+    key = f"{raw['date']}-{start:04d}-{'+'.join(short)}-{'+'.join(str(k.get('id')) for k in raw.get('kl') or [])}"
+    return {"key": key, "date": d, "start": start, "end": end, "period": grid.get(start, ""),
+            "subject": ", ".join(subject), "short": ", ".join(short), "room": ", ".join(rooms), "teacher": ", ".join(teachers),
+            "old_room": ", ".join(old_rooms), "old_teacher": ", ".join(old_teachers), "status": status, "code": code,
+            "text": " ".join(x for x in (raw.get("substText"), raw.get("info")) if x).strip(),
+            "lstext": raw.get("lstext") or ""}
+
+
+def hhmm(t: int) -> str:
+    return f"{t // 100}:{t % 100:02d}"
+
+
+def when(lesson_: dict) -> str:
+    return f"{lesson_['period']}. Std." if lesson_["period"] else hhmm(lesson_["start"])
+
+
+def day_name(d: date) -> str:
+    today = date.today()
+    prefix = "heute" if d == today else "morgen" if d == today + timedelta(days=1) else WEEKDAYS[d.weekday()]
+    return f"{prefix} {d.strftime('%d.%m.')}"
+
+
+def describe(l: dict) -> str:
+    """Short text of what is different about a lesson."""
+    parts = []
+    if l["status"] == "entfällt":
+        parts.append("entfällt")
+    else:
+        if l["old_room"]:
+            parts.append(f"Raum {l['room'] or '?'} statt {l['old_room']}")
+        if l["old_teacher"]:
+            parts.append(f"Vertretung {l['teacher'] or '?'} statt {l['old_teacher']}" if l["teacher"] else "Vertretung")
+        if not parts:
+            parts.append("Sonderstunde/Vertretung" + (f", Raum {l['room']}" if l["room"] else ""))
+    if l["text"]:
+        parts.append(f"„{l['text'][:120]}“")
+    return ", ".join(parts)
+
+
+def fetch(account: dict, start: date, end: date) -> list[dict]:
+    with Session(account) as s:
+        grid = s.periods()
+        raw = s.timetable(start, end)
+    lessons = [lesson(r, grid) for r in raw if r.get("date") and r.get("startTime") is not None]
+    # A lesson that is both cancelled and replaced shows up twice: keep both, the replacement is "geändert".
+    return sorted(lessons, key=lambda l: (l["date"], l["start"], l["status"] != "entfällt"))
+
+
+def view(l: dict) -> dict:
+    v = {"time": f"{hhmm(l['start'])}–{hhmm(l['end'])}", "period": l["period"], "subject": l["subject"],
+         "room": l["room"], "teacher": l["teacher"], "status": l["status"]}
+    if l["status"] != "normal":
+        v["change"] = describe(l)
+    return {k: x for k, x in v.items() if x}
+
+
+# -- change detection ---------------------------------------------------------------
+def signature(l: dict) -> str:
+    return "|".join((l["status"], l["room"], l["old_room"], l["teacher"], l["old_teacher"], l["text"]))
+
+
+def ended(l: dict, now: datetime) -> bool:
+    return datetime.combine(l["date"], datetime.min.time()) + timedelta(hours=l["end"] // 100, minutes=l["end"] % 100) < now
+
+
+def state_file(account: dict) -> Path:
+    slug = re.sub(r"[^a-z0-9]+", "-", f"{account['name']}-{account['server']}-{account['school']}-{account['username']}".lower())
+    return STATE_DIR / f"{slug}.json"
+
+
+def changes(account: dict, lessons: list[dict], now: datetime) -> tuple[list[tuple[dict, str, str]], dict]:
+    """New things to report as (lesson, icon, text), and the state to save once they were sent."""
+    path = state_file(account)
+    try:
+        state = json.loads(path.read_text())
+    except (OSError, ValueError):
+        state = {"slots": {}, "reported": {}}
+    reported: dict[str, str] = state.get("reported") or {}
+    found = []
+    current_slots: dict[str, list[dict]] = {}
+    for l in lessons:
+        slot = l["key"].split("-")[0] + "-" + l["key"].split("-")[1]
+        current_slots.setdefault(slot, []).append({"key": l["key"], "short": l["short"], "subject": l["subject"],
+                                                   "period": l["period"], "start": l["start"], "end": l["end"]})
+        if ended(l, now):
+            continue
+        sig = signature(l)
+        if l["status"] == "entfällt":
+            if reported.get(l["key"]) != sig:
+                found.append((l, "❌", describe(l)))
+                reported[l["key"]] = sig
+        elif l["status"] == "geändert":
+            if reported.get(l["key"]) != sig:
+                found.append((l, "🔁", describe(l)))
+                reported[l["key"]] = sig
+        elif l["key"] in reported:
+            found.append((l, "✅", "findet wieder normal statt"))
+            del reported[l["key"]]
+    # Lessons that disappeared from the timetable (some schools delete instead of cancelling).
+    for slot, before in (state.get("slots") or {}).items():
+        if slot in current_slots:
+            continue
+        day = datetime.strptime(slot.split("-")[0], "%Y%m%d").date()
+        if not (now.date() <= day <= now.date() + timedelta(days=DAYS_AHEAD - 1)):
+            continue
+        for b in before:
+            gone = {**b, "date": day, "status": "entfällt", "room": "", "teacher": "", "old_room": "", "old_teacher": "", "text": ""}
+            if not ended(gone, now) and reported.get(b["key"]) != "weg":
+                found.append((gone, "❌", "entfällt (nicht mehr im Plan)"))
+                reported[b["key"]] = "weg"
+    today = now.strftime("%Y%m%d")
+    return found, {"slots": current_slots, "reported": {k: v for k, v in reported.items() if k[:8] >= today},
+                   "checked": time.time()}
+
+
+def save_state(account: dict, state: dict) -> None:
+    path = state_file(account)
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(state, ensure_ascii=False))
+    os.chmod(tmp, 0o600)
+    tmp.replace(path)
+
+
+def message(account: dict, items: list[tuple[dict, str, str]], several: bool) -> str:
+    # Double lessons with the same change become one line ("3.–4. Std.").
+    lines: list[list] = []
+    for l, icon, text in items:
+        prev = lines[-1] if lines else None
+        if (prev and prev[0]["date"] == l["date"] and prev[1] == icon and prev[2] == text and prev[0]["short"] == l["short"]
+                and prev[3]["period"].isdigit() and l["period"].isdigit() and int(l["period"]) == int(prev[3]["period"]) + 1):
+            prev[3] = l
+            continue
+        lines.append([l, icon, text, l])
+    head = f"📚 Stundenplan {account['name']}:" if several else "📚 Stundenplan:"
+    body = []
+    for first, icon, text, last in lines:
+        if first is not last:
+            slot = f"{first['period']}.–{last['period']}. Std."
+        else:
+            slot = when(first)
+        body.append(f"{icon} {day_name(first['date'])} {slot} {first['subject']}: {text}")
+    return head + "\n" + "\n".join(body)
+
+
+def send_imessage(text: str) -> bool:
+    to, key = os.environ.get("UNTIS_NOTIFY_TO", "").strip(), os.environ.get("INKBOX_API_KEY", "").strip()
+    if not to or not key:
+        return False
+    url = os.environ.get("INKBOX_IMESSAGE_URL", "https://inkbox.ai/api/v1/imessage/messages")
+    request = urllib.request.Request(url, data=json.dumps({"to": to, "text": text}).encode(), method="POST")
+    request.add_header("X-API-Key", key)
+    request.add_header("Content-Type", "application/json")
+    try:
+        with urllib.request.urlopen(request, timeout=30):
+            return True
+    except (urllib.error.URLError, OSError):
+        return False
+
+
+def note_error(account: dict, error: str, several: bool) -> None:
+    """Tell the person once when a timetable keeps failing (3 checks in a row), and when it works again."""
+    path = STATE_DIR / (state_file(account).stem + ".error.json")
+    try:
+        st = json.loads(path.read_text())
+    except (OSError, ValueError):
+        st = {"count": 0, "reported": False}
+    name = f" {account['name']}" if several else ""
+    if not error:
+        if st.get("reported"):
+            send_imessage(f"✅ Stundenplan{name} funktioniert wieder.")
+        path.unlink(missing_ok=True)
+        return
+    st["count"] = int(st.get("count") or 0) + 1
+    if st["count"] >= 3 and not st.get("reported"):
+        st["reported"] = send_imessage(f"⚠️ Stundenplan{name}: {error}. Bitte die Zugangsdaten im Gateway prüfen.")
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(st))
+
+
+# -- commands ----------------------------------------------------------------------
+def parse_day(text: str) -> date:
+    today = date.today()
+    t = (text or "heute").strip().lower()
+    if t == "heute":
+        return today
+    if t == "morgen":
+        return today + timedelta(days=1)
+    if t == "übermorgen":
+        return today + timedelta(days=2)
+    for i, wd in enumerate(["montag", "dienstag", "mittwoch", "donnerstag", "freitag", "samstag", "sonntag"]):
+        if t in (wd, wd[:2]):
+            return today + timedelta(days=(i - today.weekday()) % 7)
+    m = re.fullmatch(r"(\d{1,2})\.(\d{1,2})\.?(\d{2,4})?", t)
+    if m:
+        year = int(m.group(3)) if m.group(3) else today.year
+        try:
+            return date(year + 2000 if year < 100 else year, int(m.group(2)), int(m.group(1)))
+        except ValueError:
+            fail("Dieses Datum gibt es nicht")
+    try:
+        return date.fromisoformat(t)
+    except ValueError:
+        fail("Datum nicht verstanden – heute, morgen, Wochentag, TT.MM. oder JJJJ-MM-TT")
+
+
+def split_name(args: list[str]) -> tuple[list[str], str | None]:
+    if "--name" in args:
+        i = args.index("--name")
+        return args[:i] + args[i + 2:], " ".join(args[i + 1:i + 2]) or None
+    return args, None
+
+
+def cmd_tag(args: list[str]) -> None:
+    args, name = split_name(args)
+    day = parse_day(" ".join(args))
+    result = []
+    for a in pick(name):
+        try:
+            lessons = fetch(a, day, day)
+            result.append({"timetable": a["name"], "day": day_name(day), "lessons": [view(l) for l in lessons]
+                           or "keine Stunden (frei, Ferien oder Wochenende)"})
+        except UntisError as err:
+            result.append({"timetable": a["name"], "error": str(err)})
+    out(result)
+
+
+def cmd_aenderungen(args: list[str]) -> None:
+    _, name = split_name(args)
+    now = datetime.now()
+    result = []
+    for a in pick(name):
+        try:
+            lessons = fetch(a, now.date(), now.date() + timedelta(days=DAYS_AHEAD - 1))
+        except UntisError as err:
+            result.append({"timetable": a["name"], "error": str(err)})
+            continue
+        changed = [{"day": day_name(l["date"]), "when": when(l), "subject": l["subject"], "change": describe(l)}
+                   for l in lessons if l["status"] != "normal" and not ended(l, now)]
+        result.append({"timetable": a["name"], "changes": changed or "keine Änderungen in den nächsten 7 Tagen"})
+    out(result)
+
+
+def cmd_test() -> None:
+    result = []
+    for a in pick(None):
+        try:
+            with Session(a) as s:
+                kind = {5: "Schüler", 2: "Lehrkraft", 12: "Eltern"}.get(s.person[0] if s.person else 0, "Konto")
+            result.append({"timetable": a["name"], "ok": True, "account": kind})
+        except UntisError as err:
+            result.append({"timetable": a["name"], "ok": False, "error": str(err)})
+    out(result)
+
+
+def cmd_check() -> None:
+    accs = accounts()
+    now = datetime.now()
+    report = []
+    for a in accs:
+        try:
+            lessons = fetch(a, now.date(), now.date() + timedelta(days=DAYS_AHEAD - 1))
+        except UntisError as err:
+            report.append({"timetable": a["name"], "error": str(err)})
+            note_error(a, str(err), len(accs) > 1)
+            continue
+        note_error(a, "", len(accs) > 1)
+        found, state = changes(a, lessons, now)
+        sent = send_imessage(message(a, found, len(accs) > 1)) if found else False
+        if sent or not found or not os.environ.get("UNTIS_NOTIFY_TO"):
+            save_state(a, state)     # otherwise the same changes are tried again next time
+        if found:
+            report.append({"timetable": a["name"], "changes": len(found), "sent": sent})
+    out({"checked": len(accs), "report": report})
+
+
+def main(argv: list[str]) -> None:
+    if not argv or argv[0] in ("-h", "--help"):
+        print(__doc__.strip())
+        return
+    cmd, args = argv[0], argv[1:]
+    if cmd == "tag":
+        cmd_tag(args)
+    elif cmd in ("aenderungen", "änderungen"):
+        cmd_aenderungen(args)
+    elif cmd == "test":
+        cmd_test()
+    elif cmd == "check":
+        cmd_check()
+    else:
+        fail("untis tag|aenderungen|test|check")
+
+
+if __name__ == "__main__":
+    main(sys.argv[1:])

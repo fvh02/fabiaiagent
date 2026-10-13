@@ -365,6 +365,42 @@ if [ -n "$PAKETE_17TRACK_KEY$PAKETE_DHL_KEY" ]; then
 else
   echo "[inkbox] Paketverfolgung: ohne Tracking-Schlüssel (nur merken, Status über die Seite des Paketdiensts)"
 fi
+
+# WebUntis: one or more timetables. Changes (cancelled, substitution, room, extra lessons) are
+# checked every 15 minutes (6–22 o'clock) and reported once by iMessage.
+UNTIS_JSON="$(jq -c '[.untis // [] | .[] | select((.server // "") != "" and (.username // "") != "" and (.password // "") != "")]' "$OPTIONS")"
+if [ "$UNTIS_JSON" != "[]" ]; then
+  export UNTIS_ACCOUNTS="$UNTIS_JSON" UNTIS_STATE_DIR=/data/untis UNTIS_NOTIFY_TO="$EBAY_NOTIFY_TO_OPT"
+  for sub in tag aenderungen änderungen test --help; do AUTO_ALLOWED="$AUTO_ALLOWED,Bash(untis $sub:*)"; done
+  UNTIS_NAMES="$(printf '%s' "$UNTIS_JSON" | jq -r '[.[] | .name // empty] | join(", ")')"
+  set_block untis "## School timetable (WebUntis)
+
+The person's WebUntis timetable(s) are available through the \`untis\` command${UNTIS_NAMES:+ (timetables: $UNTIS_NAMES)}. Run it directly (not combined with other commands); it prints JSON.
+
+- \`untis tag [heute|morgen|Wochentag|TT.MM.] [--name NAME]\` – lessons of one day with room, teacher and changes
+- \`untis aenderungen [--name NAME]\` – all changes (cancelled, substitution, room change, extra lessons) in the next 7 days
+- \`untis test\` – check that every timetable can log in
+
+How to answer:
+- \"Was hab ich morgen?\", \"Fällt was aus?\", \"Wann ist morgen Schluss?\" – use \`untis tag\` or \`untis aenderungen\` and answer briefly: first lesson, last lesson, and every change. With several timetables use --name when the person means one of them, otherwise show all.
+- The add-on reports every change by iMessage on its own; you don't need to watch it.
+- Never change anything in WebUntis; you can only read."
+  (
+    export INKBOX_API_KEY="$INKBOX_API_KEY_OPT"
+    sleep 90
+    while true; do
+      hour="$(date +%H)"
+      if [ "${hour#0}" -ge 6 ] && [ "${hour#0}" -lt 22 ]; then
+        untis check >/dev/null 2>&1 || echo "[inkbox] Stundenplan: Prüfung fehlgeschlagen" >&2
+      fi
+      sleep 900
+    done
+  ) &
+  echo "[inkbox] Stundenplan: aktiv ($UNTIS_NAMES)${EBAY_NOTIFY_TO_OPT:+, Meldungen an $EBAY_NOTIFY_TO_OPT}"
+  untis test 2>/dev/null | jq -r '.[] | "[inkbox] Stundenplan \(.timetable): \(if .ok then "Anmeldung ok" else "FEHLER – \(.error)" end)"' || true
+else
+  set_block untis
+fi
 export INKBOX_AUTO_ALLOWED_TOOLS="$AUTO_ALLOWED"
 
 # Rotate the webhook signing key only when this add-on doesn't hold one for

@@ -169,6 +169,37 @@ Ohne Schlüssel merkt sich der Assistent die Pakete trotzdem und schaut bei Nach
 Seite des Paketdiensts nach – automatische Meldungen gibt es dann nicht. Geprüft wird stündlich
 zwischen 7 und 22 Uhr.
 
+## Stundenplan (WebUntis)
+
+Der Assistent meldet dir per iMessage **jede Änderung** in deinem WebUntis-Stundenplan –
+Ausfall, Vertretung, Raumänderung, Sonderstunden – für heute und die nächsten 7 Tage, z. B.:
+
+> 📚 Stundenplan:
+> ❌ morgen 14.10. 2.–3. Std. Mathe: entfällt
+> 🔁 morgen 14.10. 4. Std. Englisch: Raum B12 statt A04, „Aufgaben in Teams“
+
+Findet eine gemeldete Stunde doch statt, kommt „✅ findet wieder normal statt“. Geprüft wird
+alle 15 Minuten zwischen 6 und 22 Uhr; jede Änderung kommt nur einmal. Fragen gehen auch:
+„Was hab ich morgen?“, „Fällt diese Woche was aus?“, „Wann ist Freitag Schluss?“.
+
+Einrichtung unter **Konfiguration → Stundenpläne (WebUntis)**, ein Eintrag pro Stundenplan
+(mehrere sind möglich):
+
+- **name:** frei wählbar, z. B. `Fabian` – steht in den Meldungen, wenn es mehrere Pläne gibt
+- **server:** Im Browser auf [webuntis.com](https://webuntis.com) die Schule suchen und die
+  Login-Seite öffnen. Die Adresse aus der Adresszeile hier einfügen, z. B.
+  `https://nessa.webuntis.com/WebUntis/?school=gym-musterstadt#/basic/login` – dann bleibt
+  **school** leer.
+- **username / password:** deine WebUntis-Anmeldung
+
+Meldungen gehen an **Deine Handynummer (Meldungen)**. Speichern und neu starten; im Protokoll
+steht pro Plan `[inkbox] Stundenplan Fabian: Anmeldung ok` oder der Fehler.
+
+Hinweise: Es geht nur mit Untis-Benutzername und -Passwort, nicht mit „Mit Microsoft anmelden“.
+Manche Schulen sperren den Zugriff für eigene Programme – dann steht das im Protokoll. Schlägt
+die Anmeldung dreimal hintereinander fehl, bekommst du einmal eine Nachricht. Der Assistent liest
+nur, er ändert nichts in WebUntis.
+
 ## 3D-Druck
 
 Mit dem Add-on **3D-Druck** aus diesem Repository sucht Claude Modelle auf Printables, schickt

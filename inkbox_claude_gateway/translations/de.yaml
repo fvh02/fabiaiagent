@@ -68,3 +68,6 @@ configuration:
   paket_dhl_key:
     name: Paketverfolgung – DHL-Schlüssel
     description: Optional. Kostenloser API-Key von developer.dhl.com (Shipment Tracking – Unified) für genauere DHL-Daten.
+  untis:
+    name: Stundenpläne (WebUntis)
+    description: "Ein Eintrag pro Stundenplan. name = frei wählbar (z. B. Fabian), server = Adresse aus dem Browser beim WebUntis-Login (z. B. https://nessa.webuntis.com/WebUntis/?school=gym-musterstadt – dann bleibt school leer) oder nur der Server, school = Schulname, username und password = deine WebUntis-Anmeldung. Nur mit Untis-Passwort, nicht mit Microsoft-Login."
